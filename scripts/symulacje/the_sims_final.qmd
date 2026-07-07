@@ -1,0 +1,1634 @@
+---
+title: "Ceftazolone Tazobactam model sims"
+author: "Marcel Szpott"
+format: 
+  html:
+    toc: true
+    code_fold: true
+execute:
+  warnings: false
+editor: visual
+---
+
+Opis skryptu: Symulacje podania ceftolozanu z tazobaktamem w populacji pediatrycznej przy użyciu modelu 1CMT bez wykorzystania allometrii oraz z wykorzystaniem allometrii. Grupy pediatyczne zostały utworzone z wykorzystaniem wieku oraz wagi w oparciu o publikację "Ceftolozane-Tazobactam Population Pharmacokinetics and Dose Selection for Further Clinical Evaluation in Pediatric Patients with Complicated Urinary Tract or Complicated Intra-abdominal Infections. Larson et al.(2019). Antimicrobial Agents and Chemotherapy, 63(6), e02578-18. https://doi.org/10.1128/AAC.02578-18"
+
+```{r renv, message=FALSE, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, cache = TRUE, echo = FALSE)
+#renv::snapshot()
+renv::status()
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(mrgsolve) #symulacja danych
+library(dplyr) #manipulacja danymi
+library(ggplot2)
+library(gridExtra)
+library(tidyverse) #manipulacja danymi
+library(kableExtra)
+library(bbr) #praca z modelem
+library(bbr.bayes) #praca z modelem bayesowskim
+library(furrr)
+library(future)
+library(here)
+
+#install.packages("childsds") #paczka do generowania danych z siatek centylowych WHO - do opisania w pracy mgr
+library(childsds)
+```
+
+```{r settings, message=FALSE, warning=FALSE, echo=FALSE}
+
+scriptDir <- here::here("scripts/symulacje")
+data_dir <- here::here("data/derived")
+model_dir <- here::here("model/nonmem/basic")
+model_bayes_dir <- here::here("model/BAYES")
+figure_dir <- here::here("deliv/figures/SIMS")
+table_dir <- here::here("deliv/tables/SIMS")
+simod_dir <- here::here("model/simod/basic")
+
+# helper functions
+source(here::here("scripts", "helpers","functions-table.R"))
+
+# table summary 
+sigfun = function(.x){sig(.x,digits=3)}
+```
+
+# Populacja pediatryczna
+
+tworzymy populację dzieciaczków w wieku 2-18
+
+```{r tworzenie populacji, echo=FALSE}
+
+data(leptin.ref)
+
+set.seed(123456) #ta funkcja pozwala uzyskać te same wyniki symulacji za każdym razem
+n <- 10000 #liczba osób w populacji - do zmiany
+
+agesex <- data.frame(
+  id = 1:n,
+  age = runif(n, 2, 18),
+  sex = sample(c("m", "f"), n, replace = TRUE))
+
+agesex$bmisds <- rnorm(n, mean = 0.2, sd = 1) #przesuwamy w kierunku lekkiej nadwagi niż niedowagi
+
+height_mean <- function(age) {
+  0.75 + 0.06 * age + 0.02 * log(age + 1)
+} #wzrost dzieciaków względem wieku; około 0.75cm ma noworodek, z każdym rokiem wzrost ok 6cm + spowolnienie wzrostu względem początku
+
+agesexheight <- agesex %>%
+  mutate(height = rnorm(n, height_mean(age), 0.08), # metry
+         height = pmax(height, 0.85))                # biologiczny limit
+
+weightbmi <- agesexheight %>%
+  mutate(bmi = exp(log(16 + 0.5 * age) + 0.15 * bmisds), #średnio tak rośnie bmi z wiekiem, + odchylenie
+         weight = bmi * (height^2)) #ze wzoru na bmi
+
+weightbmi$leptin <- runif(n, 0.1, 20)  # realistyczny zakres ng/ml
+
+xdata <- weightbmi %>%
+  rowwise() %>% #każdy wiersz będzie traktowany osobno
+  mutate(item = ifelse(age < 6, "leptin_until6", "leptin_6to18"), #referencje WHO 
+         leptin_sds = sds_2d(value = leptin, #standaryzacja leptyny
+                             age = age,
+                             x2 = bmisds,
+                             sex = sex,
+                             male = "m",
+                             female = "f",
+                             item = item,
+                             ref = leptin.ref,
+                             type = "SDS")) %>% ungroup()
+
+data <- xdata %>%
+  mutate(age_group = case_when(age >= 2 & age < 7 ~ "2–7 lat",
+                               age >= 7 & age < 12 ~ "7–12 lat",
+                               age >= 12 ~ "12–18 lat")) %>%
+  mutate(age_group = factor(age_group, levels = c("2–7 lat", "7–12 lat", "12–18 lat"))) %>% 
+  mutate(bmi_percentyl = pnorm(bmisds) * 100) %>%
+  mutate(bmi_group = case_when(bmi_percentyl < 5 ~ "Niedowaga",
+                               bmi_percentyl >= 5 & bmi_percentyl < 85 ~ "Waga w normie",
+                               bmi_percentyl >= 85 ~ "Nadwaga")) %>% 
+  mutate(bmi_group = factor(bmi_group, levels = c("Niedowaga", "Waga w normie", "Nadwaga")))
+final <- data %>%
+  select(id, age, sex, age_group, height, weight, bmi, bmisds, bmi_group) %>%
+  rename(ID = id)
+
+data %>% group_by(age_group, bmi_group) %>% count()
+
+```
+
+Z każdej grupy losujemy po 100 osób:
+
+```{r nowa pop}
+
+final100 <- final %>%
+  group_by(age_group, bmi_group) %>%
+  slice_sample(n = 100) %>%
+  ungroup() %>% 
+  mutate(ID_old = ID,
+         ID = row_number())
+
+final100 %>%
+  count(age_group, bmi_group)
+```
+
+Dzieci należące do populacji charakteryzowane są przez parametry:
+
+```{r head final100}
+
+head(final100)
+
+```
+
+średnia masa ciała w populacji:
+
+```{r masa ciała}
+mean(final100$weight)
+```
+
+```{r tabela - rozkład liczbowy, echo=FALSE}
+zestawienie <- final100 %>% 
+  count(bmi_group, age_group) %>%
+  pivot_wider(
+    names_from = age_group, 
+    values_from = n,
+  ) %>%
+  rename("Grupa BMI" = bmi_group)
+
+zestawienie %>% 
+  kable(
+    format = "html", 
+    caption = "<span style='font-size: 18px; font-weight: bold; color: #000000;'>Rozkład liczbowy symulowanych pacjentów w grupach wiekowych i wagowych</span>",
+    align = c("l", rep("c", 3))) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"), 
+    full_width = TRUE, 
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#428EDB") %>%
+  column_spec(1, bold = TRUE, border_right = TRUE)
+```
+
+```{r tabela demograficzna, echo=FALSE}
+
+tabela_demograficzna <- final100 %>%
+  group_by(age_group, bmi_group) %>%
+  summarise(
+    female     = sum(sex == "f"),
+    male     = sum(sex == "m"),
+    wiek_m  = mean(age),
+    wiek_sd = sd(age),
+    waga_m  = mean(weight),
+    waga_sd = sd(weight),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    "Płeć (K/M)"  = paste0("K: ", female, " / M: ", male),
+    "Wiek [lata]" = sprintf("%.1f ± %.1f", wiek_m, wiek_sd),
+    "Waga [kg]"   = sprintf("%.1f ± %.1f", waga_m, waga_sd)
+  ) %>%
+  select(age_group, bmi_group, "Płeć (K/M)", "Wiek [lata]", "Waga [kg]") %>%
+  rename("Grupa wiekowa" = age_group,
+         "Grupa BMI"     = bmi_group)
+
+tabela_demograficzna %>%
+  kable(
+    format = "html",
+    caption = "<span style='font-size: 18px; font-weight: bold; color: #000000;'>Charakterystyka demograficzna symulowanej populacji pediatrycznej</span>",
+    align = c("l", "l", "c", "c", "c")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#428EDB") %>%
+  column_spec(1:2, bold = TRUE, border_right = TRUE) %>%
+  collapse_rows(columns = 1, valign = "middle")
+  
+```
+
+
+# Model 1CMT z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu
+
+```{r model 1cmt z allo, echo=FALSE}
+model1CMTallo <- '
+
+$PROB  
+# Model jednokompartmentowy, 
+# Podanie dożylne CEFT i TAZ, 
+# Populacja pediatryczna ze skalowaniem allometrycznym
+# WT na CL i V dla ceftolozanu i tazobaktamu
+
+$CMT DEPOT1 PER1 DEPOT2
+
+$PARAM @annotated
+TVCLC   : 6.37    : Typical clearence of cef for 70 kg subjects (L/h)  
+TVVCC   : 30.2    : Typical central volume of cef for 70 kg subjects (L) 
+TVCLT   : 15.5    : Typical clearence of taz for 70 kg subjects (L/h) 
+TVVCT   : 55.4    : Typical central volume of taz for 70 kg subjects (L)
+TVSD    : 0.812   : SDCLT:SDv1T
+WT      : 70      : Body mass of a typical subject, kg #znajdź równanie w Covariate analysis w pracy z której korzystasz i zobacz na jaką masę ciała jest ustawione to równanie
+WTCLC    : 0.79    : Allometric exponent for CL cef
+WTVCC    : 0.87    : Allometric exponent for VC cef
+WTCLT    : 0.65    : Allometric exponent for CL taz
+WTVCT    : 0.74    : Allometric exponent for VC taz
+
+
+
+$MAIN
+double V1C=TVVCC*pow(WT/70,WTVCC)*exp(EV1C) ;      
+double CLC=TVCLC*pow(WT/70,WTCLC)*exp(ECL1C) ;
+double V1T=TVVCT*pow(WT/70,WTVCT)*exp(EV1T)     ;  
+double CLT=TVCLT*pow(WT/70,WTCLT)*exp(TVSD*EV1T) ;
+
+
+$DES
+
+double AC1=DEPOT1/V1C;
+double AT1=DEPOT2/V1T;
+
+dxdt_DEPOT1=  - CLC * AC1;
+dxdt_PER1=  0 ;
+dxdt_DEPOT2=  - CLT * AT1;
+
+$OMEGA @annotated @block @correlation
+EV1C: 0.5       : ETA on V1C
+ECL1C: 0.1  0.257        : ETA on CLC
+EV1T: 0.1  0.1  0.507   : ETA on V1T
+
+$TABLE
+
+double  CEF=DEPOT1/V1C;
+double TAZ=DEPOT2/V1T;
+
+$CAPTURE @etas 1:LAST
+CEF TAZ
+'
+modallo <- mread("100a", simod_dir, model1CMTallo)
+modallo
+```
+
+Sprawdź model, parametry, warunki początkowe modelu jednokompartmentowego
+
+```{r model, parametry, warunki początkowe3, echo=FALSE}
+
+see(modallo)
+param(modallo)
+init(modallo)
+
+```
+
+```{r funkcja z allo1, echo=FALSE}
+plot_allo <- function(.final,
+                      .dawkacef, 
+                      .dawkataz, 
+                      .tau,
+                      .subtitle = NULL,
+                      log = FALSE) {
+dose_times <- seq(0, by = .tau, length.out = 6) #6 dawek co 8h
+
+evcef <- ev(
+  ID=.final$ID,
+  time = dose_times,
+  amt = .dawkacef,
+  cmt = 1,
+  rate = .dawkacef) 
+
+evtaz <- ev(
+  ID=.final$ID,
+  time = dose_times,
+  amt = .dawkataz,
+  cmt = 3,   
+  rate = .dawkataz)
+
+end_time <- max(dose_times)
+out <- seq(0, end_time, by = 0.1)
+
+dosing <- c(evcef, evtaz)
+
+out1 <- modallo %>%
+  ev(dosing) %>%
+  mrgsim(end = end_time, delta = 0.1)
+
+simdata <- as_tibble(out1) %>% 
+  left_join(.final, by = "ID")
+
+plotstats <- simdata %>%
+  group_by(age_group, bmi_group, time) %>%
+  summarise(
+    srednia_CEF = mean(CEF, na.rm = TRUE),
+    q5_CEF = quantile(CEF, 0.05, na.rm = TRUE),
+    q95_CEF = quantile(CEF, 0.95, na.rm = TRUE),
+    srednia_TAZ = mean(TAZ, na.rm = TRUE),
+    q5_TAZ = quantile(TAZ, 0.05, na.rm = TRUE),
+    q95_TAZ = quantile(TAZ, 0.95, na.rm = TRUE),
+    n            = n(),                    
+    .groups      = "drop")
+
+
+wykres <- ggplot(plotstats, aes(x = time, y = srednia_CEF, color = "ceftolozan")) +
+  geom_line(linewidth = 0.8) +                                
+  geom_ribbon(aes(ymin = q5_CEF, ymax = q95_CEF, 
+                  fill = "ceftolozan"), 
+              alpha = 0.25, color = NA) +  
+  geom_line(aes(x = time, y = srednia_TAZ, color = "tazobaktam"),linewidth = 0.8) + 
+  geom_ribbon(aes(ymin = q5_TAZ, ymax = q95_TAZ, 
+                  fill = "tazobaktam"),
+              alpha = 0.25, color = NA) +
+  scale_color_manual(values = c("ceftolozan" = "red4", "tazobaktam" = "black")) +
+  scale_fill_manual(values = c("ceftolozan" = "red4", "tazobaktam" = "black")) +
+  facet_grid(bmi_group ~ age_group) +
+  labs(title    = "Model jednokompartmentowy ze skalowaniem allometrycznym.\nStała dawka.",
+       subtitle = .subtitle,
+       x        = "Czas [h]",
+       y        = "Stężenia leków [mg/L]",
+       color    = "Lek",
+       fill     = "Lek",
+       caption  = "Średnie stężenia leków 5. i 95. percentyl\nSkala liniowa") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom", strip.text.y = element_text(size = 6), plot.caption = element_text(size = 7)) 
+plot <- wykres 
+
+if(log == TRUE) {
+  plot <- wykres + scale_y_log10() +
+    labs(caption  = "Średnie stężenia leków 5. i 95. percentyl\nSkala pół-logarytmiczna")
+} 
+
+plot
+
+}
+```
+
+```{r reżimy z allo1, echo=FALSE}
+plot_allo(.final=final100, .dawkacef = 250, .dawkataz = 125, .tau = 8, .subtitle = "Dawka = 250/125 mg (CEF/TAZ) podanie co 8h")
+plot_allo(.final=final100, .dawkacef = 250, .dawkataz = 125, .tau = 8, .subtitle = "Dawka = 250/125 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_allo(.dawkacef = 500, .dawkataz = 250, .tau = 8, .subtitle = "Dawka = 500/250 mg (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo(.dawkacef = 500, .dawkataz = 250, .tau = 8, .subtitle = "Dawka = 500/250 mg (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo(.dawkacef = 1000, .dawkataz = 500, .tau = 8, .subtitle = "Dawka = 1000/500  mg (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo(.dawkacef = 1000, .dawkataz = 500, .tau = 8, .subtitle = "Dawka = 1000/500  mg (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo(.dawkacef = 1500, .dawkataz = 750, .tau = 8, .subtitle = "Dawka = 1500/750 mg (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo(.dawkacef = 1500, .dawkataz = 750, .tau = 8, .subtitle = "Dawka = 1500/750 mg (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo(.dawkacef = 2000, .dawkataz = 1000, .tau = 8, .subtitle = "Dawka = 2000/1000 mg (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo(.dawkacef = 2000, .dawkataz = 1000, .tau = 8, .subtitle = "Dawka = 2000/1000 mg (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo(.dawkacef = 2500, .dawkataz = 1250, .tau = 8, .subtitle = "Dawka = 2500/1250 mg (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo(.dawkacef = 2500, .dawkataz = 1250, .tau = 8, .subtitle = "Dawka = 2500/1250 mg (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo(.dawkacef = 3000, .dawkataz = 1500, .tau = 8, .subtitle = "Dawka = 3000/1500 mg (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo(.dawkacef = 3000, .dawkataz = 1500, .tau = 8, .subtitle = "Dawka = 3000/1500 mg (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE) 
+```
+
+```{r rm1, echo=FALSE}
+rm(plot_allo)
+rm(evcef)
+rm(evtaz)
+rm(dose_times)
+rm(dosing)
+rm(wykres)
+rm(out1)
+rm(plotstats)
+rm(simdata)
+```
+
+
+# Model 1CMT z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.
+
+```{r funkcja z allo2, echo=FALSE}
+plot_allo2 <- function(.final,
+                      .dawkacef, 
+                      .dawkataz, 
+                      .tau,
+                      .subtitle = NULL,
+                      log = FALSE) {
+dose_times <- seq(0, by = .tau, length.out = 6) #6 dawek co 8h
+
+evcef <- ev(ID=.final$ID,
+            time = dose_times,
+            amt = 0,
+            cmt = 1,
+            rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.final, by = "ID") %>% 
+  mutate(amt = .dawkacef * weight) %>% 
+  mutate(rate = .dawkacef * weight) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+evtaz <- ev(
+  ID=.final$ID,
+  time = dose_times,
+  amt = 0,
+  cmt = 3,   
+  rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.final, by = "ID") %>% 
+  mutate(amt = .dawkataz * weight) %>% 
+  mutate(rate = .dawkataz * weight) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+end_time <- max(dose_times)
+out <- seq(0, end_time, by = 0.1)
+
+dosing <- c(evcef, evtaz)
+
+out1 <- modallo %>%
+  ev(dosing) %>%
+  mrgsim(end = end_time, delta = 0.1)
+
+simdata <- as_tibble(out1) %>% 
+  left_join(.final, by = "ID")
+
+plotstats <- simdata %>%
+  group_by(age_group, bmi_group, time) %>%
+  summarise(
+    srednia_CEF = mean(CEF, na.rm = TRUE),
+    q5_CEF = quantile(CEF, 0.05, na.rm = TRUE),
+    q95_CEF = quantile(CEF, 0.95, na.rm = TRUE),
+    srednia_TAZ = mean(TAZ, na.rm = TRUE),
+    q5_TAZ = quantile(TAZ, 0.05, na.rm = TRUE),
+    q95_TAZ = quantile(TAZ, 0.95, na.rm = TRUE),
+    n            = n(),                    
+    .groups      = "drop")
+
+
+wykres <- ggplot(plotstats, aes(x = time, y = srednia_CEF, color = "ceftolozan")) +
+  geom_line(linewidth = 0.8) +                                
+  geom_ribbon(aes(ymin = q5_CEF, ymax = q95_CEF, 
+                  fill = "ceftolozan"), 
+              alpha = 0.25, color = NA) +  
+  geom_line(aes(x = time, y = srednia_TAZ, color = "tazobaktam"),linewidth = 0.8) + 
+  geom_ribbon(aes(ymin = q5_TAZ, ymax = q95_TAZ, 
+                  fill = "tazobaktam"),
+              alpha = 0.25, color = NA) +
+  scale_color_manual(values = c("ceftolozan" = "red4", "tazobaktam" = "black")) +
+  scale_fill_manual(values = c("ceftolozan" = "red4", "tazobaktam" = "black")) +
+  facet_grid(bmi_group ~ age_group) +
+  labs(title    = "Model jednokompartmentowy ze skalowaniem allometrycznym.\nDawka na kilogram masy ciała.",
+       subtitle = .subtitle,
+       x        = "Czas [h]",
+       y        = "Stężenia leków [mg/L]",
+       color    = "Lek",
+       fill     = "Lek",
+       caption  = "Średnie stężenia leków 5. i 95. percentyl\nSkala liniowa") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom", strip.text.y = element_text(size = 6), plot.caption = element_text(size = 7)) 
+plot <- wykres 
+
+if(log == TRUE) {
+  plot <- wykres + scale_y_log10() +
+    labs(caption  = "Średnie stężenia leków 5. i 95. percentyl\nSkala pół-logarytmiczna")
+} 
+
+plot
+
+}
+```
+
+```{r reżimy z allo2, echo=FALSE}
+plot_allo2(.dawkacef = 12,.dawkataz = 6, .tau = 6, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 6h",.final=final100)
+plot_allo2(.dawkacef = 12,.dawkataz = 6, .tau = 8, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo2(.dawkacef = 15,.dawkataz = 7.5, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo2(.dawkacef = 15,.dawkataz = 7.5, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo2(.dawkacef = 18,.dawkataz = 9, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo2(.dawkacef = 18,.dawkataz = 9, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo2(.dawkacef = 20,.dawkataz = 10, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo2(.dawkacef = 20,.dawkataz = 10, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo2(.dawkacef = 24,.dawkataz = 12, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo2(.dawkacef = 24,.dawkataz = 12, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo2(.dawkacef = 27,.dawkataz = 13.5, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo2(.dawkacef = 27,.dawkataz = 13.5, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo2(.dawkacef = 30,.dawkataz = 15, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+plot_allo2(.dawkacef = 30,.dawkataz = 15, .tau = 12, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 12h",.final=final100, log = TRUE)
+plot_allo2(.dawkacef = 30,.dawkataz = 15, .tau = 24, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 24h",.final=final100, log = TRUE) 
+```
+
+```{r rm2, echo=FALSE}
+rm(plot_allo2)
+rm(evcef)
+rm(evtaz)
+rm(dose_times)
+rm(dosing)
+rm(wykres)
+rm(out1)
+rm(plotstats)
+rm(simdata)
+```
+
+
+# Model 1CMT z allometrycznym skalowaniem na parametry PK i ze skalowaniem allometrycznym na masę ciała w dawkowaniu
+
+```{r funkcja z allo3, echo=FALSE}
+plot_allo3 <- function(.final,
+                      .dawkacef, 
+                      .dawkataz, 
+                      .tau,
+                      .subtitle = NULL,
+                      log = FALSE) {
+dose_times <- seq(0, by = .tau, length.out = 6) #6 dawek co 8h
+
+evcef <- ev(ID=.final$ID,
+            time = dose_times,
+            amt = 0,
+            cmt = 1,
+            rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.final, by = "ID") %>% 
+  mutate(amt = .dawkacef*(weight/70)^0.75) %>% 
+  mutate(rate = .dawkacef*(weight/70)^0.75) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+evtaz <- ev(ID=.final$ID,
+            time = dose_times,
+            amt = 0,
+            cmt = 3,   
+            rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.final, by = "ID") %>% 
+  mutate(amt = .dawkataz*(weight/70)^0.75) %>% 
+  mutate(rate = .dawkataz*(weight/70)^0.75) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+
+end_time <- max(dose_times)
+out <- seq(0, end_time, by = 0.1)
+
+dosing <- c(evcef, evtaz)
+
+out1 <- modallo %>%
+  ev(dosing) %>%
+  mrgsim(end = end_time, delta = 0.1)
+
+simdata <- as_tibble(out1) %>% 
+  left_join(.final, by = "ID")
+
+plotstats <- simdata %>%
+  group_by(age_group, bmi_group, time) %>%
+  summarise(
+    srednia_CEF = mean(CEF, na.rm = TRUE),
+    q5_CEF = quantile(CEF, 0.05, na.rm = TRUE),
+    q95_CEF = quantile(CEF, 0.95, na.rm = TRUE),
+    srednia_TAZ = mean(TAZ, na.rm = TRUE),
+    q5_TAZ = quantile(TAZ, 0.05, na.rm = TRUE),
+    q95_TAZ = quantile(TAZ, 0.95, na.rm = TRUE),
+    n            = n(),                    
+    .groups      = "drop")
+
+
+wykres <- ggplot(plotstats, aes(x = time, y = srednia_CEF, color = "ceftolozan")) +
+  geom_line(linewidth = 0.8) +                                
+  geom_ribbon(aes(ymin = q5_CEF, ymax = q95_CEF, 
+                  fill = "ceftolozan"), 
+              alpha = 0.25, color = NA) +  
+  geom_line(aes(x = time, y = srednia_TAZ, color = "tazobaktam"),linewidth = 0.8) + 
+  geom_ribbon(aes(ymin = q5_TAZ, ymax = q95_TAZ, 
+                  fill = "tazobaktam"),
+              alpha = 0.25, color = NA) +
+  scale_color_manual(values = c("ceftolozan" = "red4", "tazobaktam" = "black")) +
+  scale_fill_manual(values = c("ceftolozan" = "red4", "tazobaktam" = "black")) +
+  facet_grid(bmi_group ~ age_group) +
+  labs(title    = "Model jednokompartmentowy ze skalowaniem allometrycznym.\nDawka skalowana allometrycznie.",
+       subtitle = .subtitle,
+       x        = "Czas [h]",
+       y        = "Stężenia leków [mg/L]",
+       color    = "Lek",
+       fill     = "Lek",  
+       caption  = "Średnie stężenia leków 5. i 95. percentyl\nSkala liniowa") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom", strip.text.y = element_text(size = 6), plot.caption = element_text(size = 7)) 
+plot <- wykres 
+
+if(log == TRUE) {
+  plot <- wykres + scale_y_log10() +
+    labs(caption  = "Średnie stężenia leków 5. i 95. percentyl\nSkala pół-logarytmiczna")
+} 
+
+plot
+
+}
+```
+
+```{r reżimy z allo3, echo=FALSE}
+plot_allo3(.dawkacef = 12*70,.dawkataz = 6*70, .tau = 6, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 6h",.final=final100)
+plot_allo3(.dawkacef = 12*70,.dawkataz = 6*70, .tau = 8, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo3(.dawkacef = 15*70,.dawkataz = 7.5*70, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo3(.dawkacef = 15*70,.dawkataz = 7.5*70, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo3(.dawkacef = 18*70,.dawkataz = 9*70, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo3(.dawkacef = 18*70,.dawkataz = 9*70, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo3(.dawkacef = 20*70,.dawkataz = 10*70, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo3(.dawkacef = 20*70,.dawkataz = 10*70, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo3(.dawkacef = 24*70,.dawkataz = 12*70, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo3(.dawkacef = 24*70,.dawkataz = 12*70, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo3(.dawkacef = 27*70,.dawkataz = 13.5*70, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100)
+plot_allo3(.dawkacef = 27*70,.dawkataz = 13.5*70, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+
+plot_allo3(.dawkacef = 30*70,.dawkataz = 15*70, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h",.final=final100, log = TRUE)
+plot_allo3(.dawkacef = 30*70,.dawkataz = 15*70, .tau = 12, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 12h",.final=final100, log = TRUE)
+plot_allo3(.dawkacef = 30*70,.dawkataz = 15*70, .tau = 24, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 24h",.final=final100, log = TRUE) 
+```
+
+```{r rm3, echo=FALSE}
+rm(plot_allo3)
+rm(evcef)
+rm(evtaz)
+rm(dose_times)
+rm(dosing)
+rm(wykres)
+rm(out1)
+rm(plotstats)
+rm(simdata)
+```
+
+
+# Model bayesowski z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu
+
+```{r model bayes z allo1, echo=FALSE}
+
+modelbayesallo <- '
+
+$PROB CEFTOZOLAN/TAZOBAKTAM
+
+$CMT DEP1 PER1 DEP2 PER2
+
+$PARAM
+ X1 = 1;
+ X2 = 1;
+ X3 = 1;
+ X4 = 1;
+ X6 = 1;
+ X7 = 1;
+ X8 = 1;
+ X9 = 1;
+ WT = 70;
+ WTCLC = 0.79;
+ WTQC = 1;
+ WTV1C = 0.87;
+ WTV2C = 0.48;
+ WTCLT = 0.65;
+ WTQT = 0.75;
+ WTV1T = 0.74;
+ WTV2T = 0.83;
+
+$MAIN
+double CLC=X1*pow(WT/70,WTCLC);
+double QC=X2*pow(WT/70,WTQC);
+double V1C=X3*pow(WT/70,WTV1C);
+double V2C=X4*pow(WT/70,WTV2C);
+double CLT=X6*pow(WT/70,WTCLT);
+double QT=X7*pow(WT/70,WTQT);
+double V1T=X8*pow(WT/70,WTV1T);
+double V2T=X9*pow(WT/70,WTV2T);
+
+double K10 = CLC/V1C;
+double K12 = QC/V1C;
+double K21 = QC/V2C;
+double K30 = CLT/V1T;
+double K34 = QT/V1T;
+double K43 = QT/V2T;
+
+$DES
+dxdt_DEP1= -K12*DEP1+K21*PER1-K10*DEP1;
+dxdt_PER1=  K12*DEP1-K21*PER1 ;
+dxdt_DEP2= -K34*DEP2+K43*PER2-K30*DEP2;
+dxdt_PER2=  K34*DEP2-K43*PER2;
+
+$TABLE
+double  CEF=DEP1/V1C;
+double TAZ=DEP2/V1T;
+
+$CAPTURE @etas 1:LAST
+CEF TAZ
+'
+modelbayesallo <- mread("5b", simod_dir, modelbayesallo)
+modelbayesallo
+```
+
+```{r mod5gq1, echo=FALSE}
+
+mod5gq  <- read_model(file.path(model_bayes_dir, "5_gq"))
+# mod5  <- read_model(file.path(model_bayes_dir, "5"))
+#
+# open_standata_file(mod5)
+# check_stan_model(mod5)
+# mod5gq_res <- mod5gq %>% submit_model(.overwrite = FALSE)
+
+mod5gq_res  <- read_model(file.path(model_bayes_dir, "5_gq")) %>%
+  read_fit_model()
+
+draws_df = posterior::as_draws_df(mod5gq_res$draws())
+
+```
+
+```{r PTA dataset z allo1, echo=FALSE}
+
+pars <- c("thetaPredC", "thetaPredT")
+
+ndraws <- 100
+set.seed(123456)
+
+draw_ids <- posterior::as_draws_df(mod5gq_res$draws()) %>%
+  distinct(.draw) %>%
+  slice_sample(n = ndraws) %>%
+  pull(.draw)
+
+ptab1 <- posterior::as_draws_df(mod5gq_res$draws("thetaPredC")) %>%
+  filter(.draw %in% draw_ids) %>%
+  tidybayes::spread_draws(thetaPredC[j, ID]) %>%
+  select(.draw, ID, j, thetaPredC) %>%
+  pivot_wider(
+    names_from = j,
+    values_from = thetaPredC,
+    names_prefix = "X") %>%
+  ungroup()
+
+ptab2 <- posterior::as_draws_df(mod5gq_res$draws("thetaPredT")) %>%
+  filter(.draw %in% draw_ids) %>%
+  tidybayes::spread_draws(thetaPredT[j, ID]) %>%
+  mutate(j = j + 5) %>%
+  select(.draw, ID, j, thetaPredT) %>%
+  pivot_wider(
+    names_from = j,
+    values_from = thetaPredT,
+    names_prefix = "X") %>%
+  select(.draw, ID, X6:X9) %>%
+  ungroup()
+
+ptab_many <- ptab1 %>%
+  inner_join(ptab2, by = c(".draw", "ID")) %>%
+  left_join(final100, by = "ID") %>%
+  ungroup() %>%
+  rename(ID_orig = ID) %>%
+  mutate(
+    draw = .draw,
+    ID = seq_len(n())) %>%
+  select(
+    ID, ID_orig, draw,
+    age, sex, age_group, bmi_group, weight,
+    X1, X2, X3, X4, X6, X7, X8, X9)
+
+```
+
+
+```{r funkcja modelu bayes z allo1, echo=FALSE}
+plot_bayes_allo <- function(.dawkacef,
+                      .dawkataz,
+                      .patab,
+                      .tau,
+                      .subtitle = NULL,
+                      log = FALSE) {
+dose_times <- seq(0, by = .tau, length.out = 6) #10 dawek co 8h
+
+
+evcef <- ev(
+  ID=.patab$ID,
+  time = dose_times,
+  amt = .dawkacef,
+  cmt = 1,
+  rate = .dawkacef) 
+
+evtaz <- ev(
+  ID=.patab$ID,
+  time = dose_times,
+  amt = .dawkataz,
+  cmt = 3,   
+  rate = .dawkataz)
+
+end_time <- max(dose_times)
+
+dosing <- c(evcef, evtaz)
+
+simdata <- modelbayesallo %>%
+  ev(dosing) %>%
+  mrgsim_df(idata = .patab,
+         end = end_time,
+         delta = 0.25,
+         recover=c("age_group","bmi_group", "draw"))
+
+
+plotstats_draw <- simdata %>%
+  group_by(draw, age_group, bmi_group, time) %>%
+  summarise(mean_CEF_draw = mean(CEF, na.rm = TRUE),
+            mean_TAZ_draw = mean(TAZ, na.rm = TRUE),
+            .groups = "drop")
+
+
+plotstats <- plotstats_draw %>%
+  group_by(age_group, bmi_group, time) %>%
+  summarise(srednia_CEF = mean(mean_CEF_draw, na.rm = TRUE),
+            q5_CEF      = quantile(mean_CEF_draw, 0.05, na.rm = TRUE),
+            q95_CEF     = quantile(mean_CEF_draw, 0.95, na.rm = TRUE),
+            srednia_TAZ = mean(mean_TAZ_draw, na.rm = TRUE),
+            q5_TAZ      = quantile(mean_TAZ_draw, 0.05, na.rm = TRUE),
+            q95_TAZ     = quantile(mean_TAZ_draw, 0.95, na.rm = TRUE),
+            .groups = "drop")
+          
+plot <- ggplot(plotstats, aes(x = time, y = srednia_CEF, color = "ceftolozan")) +
+  geom_line(linewidth = 0.8) +
+  geom_ribbon(aes(ymin = q5_CEF, ymax = q95_CEF,
+                  fill = "ceftolozan"),
+              alpha = 0.25, color = NA) +
+  geom_line(aes(x = time, y = srednia_TAZ, color = "tazobaktam"),linewidth = 0.8) +
+  geom_ribbon(aes(ymin = q5_TAZ, ymax = q95_TAZ,
+                  fill = "tazobaktam"),
+              alpha = 0.25, color = NA) +
+  scale_color_manual(values = c("ceftolozan" = "orange4", "tazobaktam" = "turquoise4")) +
+  scale_fill_manual(values = c("ceftolozan" = "orange4", "tazobaktam" = "turquoise4")) +
+  facet_grid(bmi_group ~ age_group) +
+  labs(title    = "Model bayesowski z skalowaniem allometrycznym.\nStała dawka.",
+       subtitle = .subtitle,
+       x        = "Czas [h]",
+       y        = "Stężenia leków [mg/L]",
+       color    = "Lek",
+       fill     = "Lek",
+       caption  = "Skala liniowa.\nŚrednia (linia) +- niepewność posteriorowa (obszar, 5-95.percentyl)") +
+  theme_minimal(base_size = 13)+
+  theme(legend.position = "bottom", strip.text.y = element_text(size = 6), plot.caption = element_text(size = 7))
+
+if(log == TRUE) {
+  plot <- plot + scale_y_log10() +
+    labs(caption  = "Skala pół-logarytmiczna.\nŚrednia (linia) +- niepewność posteriorowa (obszar, 5-95.percentyl)")
+}
+
+plot
+
+}
+```
+
+```{r reżimy bayes z allo1, echo=FALSE}
+plot_bayes_allo(.dawkacef = 250, .dawkataz = 125, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 250/125 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 250, .dawkataz = 125, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 250/125 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo(.dawkacef = 500, .dawkataz = 250, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 500/250 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 500, .dawkataz = 250, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 500/250 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo(.dawkacef = 1000, .dawkataz = 500, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 1000/500 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 1000, .dawkataz = 500, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 1000/500 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo(.dawkacef = 1500, .dawkataz = 750, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 1500/750 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 1500, .dawkataz = 750, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 1500/750 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo(.dawkacef = 2000, .dawkataz = 1000, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 2000/1000 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 2000, .dawkataz = 1000, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 2000/1000 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo(.dawkacef = 2500, .dawkataz = 1250, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 2500/1250 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 2500, .dawkataz = 1250, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 2500/1250 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo(.dawkacef = 3000, .dawkataz = 1500, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 3000/1500 mg (CEF/TAZ) podanie co 8h")
+plot_bayes_allo(.dawkacef = 3000, .dawkataz = 1500, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 3000/1500 mg (CEF/TAZ) podanie co 8h", log = TRUE)
+
+```
+
+# Model bayesowski z allometrycznym skalowaniem na parametry PK i z liniowym dawkowaniem na kg m.c.
+
+
+```{r funkcja modelu bayes z allo2, echo=FALSE}
+plot_bayes_allo2 <- function(.dawkacef,
+                             .dawkataz,
+                             .patab,
+                             .tau,
+                             .subtitle = NULL,
+                             log = FALSE) {
+dose_times <- seq(0, by = .tau, length.out = 6) #10 dawek co 8h
+
+
+evcef <- ev(ID=.patab$ID,
+            time = dose_times,
+            amt = 0,
+            cmt = 1,
+            rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.patab, by = "ID") %>% 
+  mutate(amt = .dawkacef * weight) %>% 
+  mutate(rate = .dawkacef * weight) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+evtaz <- ev(ID=.patab$ID,
+            time = dose_times,
+            amt = 0,
+            cmt = 3,   
+            rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.patab, by = "ID") %>% 
+  mutate(amt = .dawkataz * weight) %>% 
+  mutate(rate = .dawkataz * weight) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+
+end_time <- max(dose_times)
+
+dosing <- c(evcef, evtaz)
+
+simdata <- modelbayesallo %>%
+  ev(dosing) %>%
+  mrgsim_df(idata = .patab,
+         end = end_time,
+         delta = 0.25,
+         recover=c("age_group","bmi_group", "draw"))
+
+
+plotstats_draw <- simdata %>%
+  group_by(draw, age_group, bmi_group, time) %>%
+  summarise(mean_CEF_draw = mean(CEF, na.rm = TRUE),
+            mean_TAZ_draw = mean(TAZ, na.rm = TRUE),
+            .groups = "drop")
+
+
+plotstats <- plotstats_draw %>%
+  group_by(age_group, bmi_group, time) %>%
+  summarise(srednia_CEF = mean(mean_CEF_draw, na.rm = TRUE),
+            q5_CEF      = quantile(mean_CEF_draw, 0.05, na.rm = TRUE),
+            q95_CEF     = quantile(mean_CEF_draw, 0.95, na.rm = TRUE),
+            srednia_TAZ = mean(mean_TAZ_draw, na.rm = TRUE),
+            q5_TAZ      = quantile(mean_TAZ_draw, 0.05, na.rm = TRUE),
+            q95_TAZ     = quantile(mean_TAZ_draw, 0.95, na.rm = TRUE),
+            .groups = "drop")
+            
+plot <- ggplot(plotstats, aes(x = time, y = srednia_CEF, color = "ceftolozan")) +
+  geom_line(linewidth = 0.8) +
+  geom_ribbon(aes(ymin = q5_CEF, ymax = q95_CEF,
+                  fill = "ceftolozan"),
+              alpha = 0.25, color = NA) +
+  geom_line(aes(x = time, y = srednia_TAZ, color = "tazobaktam"),linewidth = 0.8) +
+  geom_ribbon(aes(ymin = q5_TAZ, ymax = q95_TAZ,
+                  fill = "tazobaktam"),
+              alpha = 0.25, color = NA) +
+  scale_color_manual(values = c("ceftolozan" = "orange4", "tazobaktam" = "turquoise4")) +
+  scale_fill_manual(values = c("ceftolozan" = "orange4", "tazobaktam" = "turquoise4")) +
+  facet_grid(bmi_group ~ age_group) +
+  labs(title    = "Model bayesowski z skalowaniem allometrycznym.\nDawka na kilogram masy ciała.",
+       subtitle = .subtitle,
+       x        = "Czas [h]",
+       y        = "Stężenia leków [mg/L]",
+       color    = "Lek",
+       fill     = "Lek",
+       caption  = "Skala liniowa.\nŚrednia (linia) +- niepewność posteriorowa (obszar, 5-95.percentyl)") +
+  theme_minimal(base_size = 13)+
+  theme(legend.position = "bottom", strip.text.y = element_text(size = 6), plot.caption = element_text(size = 7))
+
+if(log == TRUE) {
+  plot <- plot + scale_y_log10() +
+    labs(caption  = "Skala pół-logarytmiczna.\nŚrednia (linia) +- niepewność posteriorowa (obszar, 5-95.percentyl)")
+}
+
+plot
+
+}
+```
+
+```{r reżimy bayes z allo2, echo=FALSE}
+plot_bayes_allo2(.dawkacef = 12, .dawkataz = 6, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 12, .dawkataz = 6, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo2(.dawkacef = 15, .dawkataz = 7.5, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 15, .dawkataz = 7.5, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo2(.dawkacef = 18, .dawkataz = 9, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 18, .dawkataz = 9, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo2(.dawkacef = 20, .dawkataz = 10, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 20, .dawkataz = 10, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo2(.dawkacef = 24, .dawkataz = 12, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 24, .dawkataz = 12, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo2(.dawkacef = 27, .dawkataz = 13.5 , .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 27, .dawkataz = 13.5, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo2(.dawkacef = 30, .dawkataz = 15, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo2(.dawkacef = 30, .dawkataz = 15, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+```
+
+
+# Model bayesowski z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.
+
+
+```{r funkcja modelu bayes z allo3, echo=FALSE}
+plot_bayes_allo3 <- function(.dawkacef,
+                             .dawkataz,
+                             .patab,
+                             .tau,
+                             .subtitle = NULL,
+                             log = FALSE) {
+dose_times <- seq(0, by = .tau, length.out = 6) #10 dawek co 8h
+
+
+evcef <- ev(
+  ID=.patab$ID,
+  time = dose_times,
+  amt = 0,
+  cmt = 1,
+  rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.patab, by = "ID") %>% 
+  mutate(amt = .dawkacef*(weight/70)^0.75) %>% 
+  mutate(rate = .dawkacef*(weight/70)^0.75) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+evtaz <- ev(
+  ID=.patab$ID,
+  time = dose_times,
+  amt = 0,
+  cmt = 3,   
+  rate = 0) %>% 
+  as.data.frame() %>% 
+  left_join(.patab, by = "ID") %>% 
+  mutate(amt = .dawkataz*(weight/70)^0.75) %>% 
+  mutate(rate = .dawkataz*(weight/70)^0.75) %>% 
+  select(ID:evid, weight) %>% 
+  mutate(WT = weight)%>%
+  as.ev() 
+
+
+end_time <- max(dose_times)
+
+dosing <- c(evcef, evtaz)
+
+simdata <- modelbayesallo %>%
+  ev(dosing) %>%
+  mrgsim_df(idata = .patab,
+         end = end_time,
+         delta = 0.25,
+         recover=c("age_group","bmi_group", "draw"))
+
+
+plotstats_draw <- simdata %>%
+  group_by(draw, age_group, bmi_group, time) %>%
+  summarise(mean_CEF_draw = mean(CEF, na.rm = TRUE),
+            mean_TAZ_draw = mean(TAZ, na.rm = TRUE),
+            .groups = "drop")
+
+
+plotstats <- plotstats_draw %>%
+  group_by(age_group, bmi_group, time) %>%
+  summarise(srednia_CEF = mean(mean_CEF_draw, na.rm = TRUE),
+            q5_CEF      = quantile(mean_CEF_draw, 0.05, na.rm = TRUE),
+            q95_CEF     = quantile(mean_CEF_draw, 0.95, na.rm = TRUE),
+            srednia_TAZ = mean(mean_TAZ_draw, na.rm = TRUE),
+            q5_TAZ      = quantile(mean_TAZ_draw, 0.05, na.rm = TRUE),
+            q95_TAZ     = quantile(mean_TAZ_draw, 0.95, na.rm = TRUE),
+            .groups = "drop")
+            
+plot <- ggplot(plotstats, aes(x = time, y = srednia_CEF, color = "ceftolozan")) +
+  geom_line(linewidth = 0.8) +
+  geom_ribbon(aes(ymin = q5_CEF, ymax = q95_CEF,
+                  fill = "ceftolozan"),
+              alpha = 0.25, color = NA) +
+  geom_line(aes(x = time, y = srednia_TAZ, color = "tazobaktam"),linewidth = 0.8) +
+  geom_ribbon(aes(ymin = q5_TAZ, ymax = q95_TAZ,
+                  fill = "tazobaktam"),
+              alpha = 0.25, color = NA) +
+  scale_color_manual(values = c("ceftolozan" = "orange4", "tazobaktam" = "turquoise4")) +
+  scale_fill_manual(values = c("ceftolozan" = "orange4", "tazobaktam" = "turquoise4")) +
+  facet_grid(bmi_group ~ age_group) +
+  labs(title    = "Model bayesowski z skalowaniem allometrycznym.\nDawka skalowana allometrycznie.",
+       subtitle = .subtitle,
+       x        = "Czas [h]",
+       y        = "Stężenia leków [mg/L]",
+       color    = "Lek",
+       fill     = "Lek",
+       caption  = "Skala liniowa.\nŚrednia (linia) +- niepewność posteriorowa (obszar, 5-95.percentyl)") +
+  theme_minimal(base_size = 13)+
+  theme(legend.position = "bottom", strip.text.y = element_text(size = 6), plot.caption = element_text(size = 7))
+
+if(log == TRUE) {
+  plot <- plot + scale_y_log10() +
+    labs(caption  = "Skala pół-logarytmiczna.\nŚrednia (linia) +- niepewność posteriorowa (obszar, 5-95.percentyl)")
+}
+
+plot
+
+}
+```
+
+```{r reżimy bayes z allo3, echo=FALSE}
+plot_bayes_allo3(.dawkacef = 12*70, .dawkataz = 6*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 12*70, .dawkataz = 6*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 12/6 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo3(.dawkacef = 15*70, .dawkataz = 7.5*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 15*70, .dawkataz = 7.5*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 15/7.5 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo3(.dawkacef = 18*70, .dawkataz = 9*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 18*70, .dawkataz = 9*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 18/9 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo3(.dawkacef = 20*70, .dawkataz = 10*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 20*70, .dawkataz = 10*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 20/10 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo3(.dawkacef = 24*70, .dawkataz = 12*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 24*70, .dawkataz = 12*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 24/12 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo3(.dawkacef = 27*70, .dawkataz = 13.5*70 , .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 27*70, .dawkataz = 13.5*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 27/13.5 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+plot_bayes_allo3(.dawkacef = 30*70, .dawkataz = 15*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h")
+plot_bayes_allo3(.dawkacef = 30*70, .dawkataz = 15*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
+
+```
+
+
+# PTA - BAYES z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu
+
+```{r PTA bayes allo1}
+
+plot_pta_bayesallo1 <- function(.dawkacef,
+                               .dawkataz,
+                               .vpop,
+                               .df_draws,
+                               .tau,
+                               .group_var = c("age_group", "bmi_group"),
+                               .ndraws = 100,
+                               .title = NULL,
+                                .subtitle = NULL){
+  .group_var <- match.arg(.group_var)
+  set.seed(123456)
+  sampled_draws <- sample(unique(.df_draws$.draw),
+                          size = min(.ndraws, length(unique(.df_draws$.draw))))
+
+  dose_times <- seq(0, by = .tau, length.out = 6)
+  end_time <- max(dose_times) + .tau
+  start_last_dose <- max(dose_times)
+  dt <- 0.1
+
+  if (.group_var == "age_group") {
+  cols <- c(
+    "2–7 lat" = "#1b9e77",
+    "7–12 lat" = "#d95f02",
+    "12–18 lat" = "#7570b3"
+  )
+}
+if (.group_var == "bmi_group") {
+  cols <- c(
+    "Niedowaga" = "#4daf4a",
+    "Waga w normie" = "#ff7f00",
+    "Nadwaga" = "#e41a1c"
+  )
+}
+  
+  legend_title <- if (.group_var == "age_group") "Grupa wiekowa" else "Grupa wagowa"
+  
+  
+  pta_results <- future_map(sampled_draws, function(i) {
+    ptab1_i <- .df_draws %>%
+      filter(.draw == i) %>%
+      tidybayes::spread_draws(thetaPredC[j, ID]) %>%
+      pivot_wider(names_from = j, values_from = thetaPredC, names_prefix = "X")
+
+    ptab2_i <- .df_draws %>%
+      filter(.draw == i) %>%
+      tidybayes::spread_draws(thetaPredT[j, ID]) %>%
+      mutate(j = j + 5) %>%
+      pivot_wider(names_from = j, values_from = thetaPredT, names_prefix = "X") %>%
+      select(ID, X6:X9)
+
+    ptab_i <- left_join(ptab1_i, ptab2_i, by = "ID") %>%
+      select(ID, X1:X9) %>%
+      left_join(.vpop, by = "ID")
+    
+    evcef <- ev(ID=ptab_i$ID,
+                time = dose_times,
+                amt = .dawkacef,
+                cmt = 1,
+                rate = .dawkacef) %>% 
+      as.data.frame() %>%
+      left_join(ptab_i, by = "ID") %>%
+      select(ID:evid, weight) %>%
+      mutate(WT = weight) %>%
+      as.ev()
+      
+    
+    evtaz <- ev(ID=ptab_i$ID,
+                time = dose_times,
+                amt = .dawkataz,
+                cmt = 3,   
+                rate = .dawkataz) %>% 
+      as.data.frame() %>%
+      left_join(ptab_i, by = "ID") %>%
+      select(ID:evid, weight) %>%
+      mutate(WT = weight) %>%
+      as.ev()
+
+   
+    dosing <- c(evcef, evtaz)
+
+    out_i <- modelbayesallo %>%
+      ev(dosing) %>%
+      mrgsim(idata = ptab_i, end = end_time, delta = dt) %>%
+      as_tibble() %>%
+      filter(time >= start_last_dose & time < end_time) %>%
+      left_join(ptab_i %>% select(ID, age_group, bmi_group), by = "ID") %>%
+      tidyr::expand_grid(MIC = exp(seq(log(2), log(256), length.out = 256))) %>%
+      group_by(MIC, ID, .data[[.group_var]]) %>%
+      summarise(TARGET1 = (length(which(0.8 * CEF * 1000 >= MIC)) * dt) >= 0.3 * .tau,
+                TARGET2 = (length(which(0.7 * TAZ * 1000 >= 1)) * dt) >= 0.2 * .tau,
+                .groups = "drop") %>%
+      group_by(MIC, .data[[.group_var]]) %>%
+      summarise(PTA = mean(as.numeric(TARGET1 & TARGET2)),
+                PTAC = mean(as.numeric(TARGET1)),
+                PTAT = mean(as.numeric(TARGET2)),
+                .groups = "drop") %>%
+      mutate(draw = i)
+
+    return(out_i)
+  }, .options = furrr_options(seed = TRUE)) %>% bind_rows()
+
+  pta_stats <- pta_results %>%
+    group_by(MIC, .data[[.group_var]]) %>%
+    summarise(my = median(PTA),
+              ly = quantile(PTA, 0.05),
+              hy = quantile(PTA, 0.95),
+              .groups = "drop")
+
+  plot <-  ggplot(pta_stats, aes(x = MIC, y = my, color = .data[[.group_var]],  fill = .data[[.group_var]])) +
+    geom_line(linewidth = 1, alpha = 0.7) +
+    geom_ribbon(aes(ymin = ly, ymax = hy), alpha = 0.15, color = NA) +
+    geom_hline(yintercept = 0.9, color = 'grey30', linetype = "dashed") +
+    labs(title = .title,
+         subtitle = .subtitle,
+         x = "MIC (mg/L)",
+         y = "PTA",
+        color = legend_title,
+        fill = legend_title)  +
+    theme_bw(base_size = 13)+
+    scale_x_continuous(transform = "log2",
+                    breaks = c(2, 4, 8, 16, 32, 64, 128, 256),
+                    labels = c("2", "4", "8", "16", "32", "64", "128", "256")) +
+    scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
+      scale_color_manual(values = cols) +
+      scale_fill_manual(values = cols) +
+    theme(legend.position = "bottom")
+
+  return(plot)
+
+}
+
+```
+
+```{r PTA bayes allo function1}
+
+plan(multisession, workers = 8)
+options(future.globals.maxSize = 2 * 1024^3) ## uruchom aby zwiększyć limit RAMu - trzymam kciuki, żeby nie spaliło komputera :)
+
+### WAŻNE! DAWKI TRZEBA PODAWAĆ W GRAMACH, ŻEBY ZGADZAŁY SIĘ JEDNOSTKI + pojedynczy wykres zajmuje bardzo dużo czasu (+/- 10minut)
+
+plot_pta_bayesallo1(.dawkacef = 1, .dawkataz = 0.5, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "bmi_group", .title = "PTA w zależności od grupy wagowej.\nStała dawka.", .subtitle = "Dawka 1000/500 mg (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo1(.dawkacef = 1, .dawkataz = 0.5, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nStała dawka.", .subtitle = "Dawka 1000/500 mg (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+
+plot_pta_bayesallo1(.dawkacef = 2.5, .dawkataz = 1.25, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "bmi_group", .title = "PTA w zależności od grupy wagowej.\nStała dawka.", .subtitle = "Dawka 2500/1250 mg (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo1(.dawkacef = 2.5, .dawkataz = 1.25, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nStała dawka.", .subtitle = "Dawka 2500/1250 mg (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+```
+
+
+# PTA - BAYES z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.
+
+```{r PTA bayes allo2}
+
+plot_pta_bayesallo2 <- function(.dawkacef,
+                               .dawkataz,
+                               .vpop,
+                               .df_draws,
+                               .tau,
+                               .group_var = c("age_group", "bmi_group"),
+                               .ndraws = 100,
+                               .title = NULL,
+                                .subtitle = NULL){
+  .group_var <- match.arg(.group_var)
+  set.seed(123456)
+  sampled_draws <- sample(unique(.df_draws$.draw),
+                          size = min(.ndraws, length(unique(.df_draws$.draw))))
+
+  dose_times <- seq(0, by = .tau, length.out = 6)
+  end_time <- max(dose_times) + .tau
+  start_last_dose <- max(dose_times)
+  dt <- 0.1
+
+  if (.group_var == "age_group") {
+  cols <- c(
+    "2–7 lat" = "#1b9e77",
+    "7–12 lat" = "#d95f02",
+    "12–18 lat" = "#7570b3"
+  )
+}
+if (.group_var == "bmi_group") {
+  cols <- c(
+    "Niedowaga" = "#4daf4a",
+    "Waga w normie" = "#ff7f00",
+    "Nadwaga" = "#e41a1c"
+  )
+}
+  
+  legend_title <- if (.group_var == "age_group") "Grupa wiekowa" else "Grupa wagowa"
+  
+  
+  pta_results <- future_map(sampled_draws, function(i) {
+    ptab1_i <- .df_draws %>%
+      filter(.draw == i) %>%
+      tidybayes::spread_draws(thetaPredC[j, ID]) %>%
+      pivot_wider(names_from = j, values_from = thetaPredC, names_prefix = "X")
+
+    ptab2_i <- .df_draws %>%
+      filter(.draw == i) %>%
+      tidybayes::spread_draws(thetaPredT[j, ID]) %>%
+      mutate(j = j + 5) %>%
+      pivot_wider(names_from = j, values_from = thetaPredT, names_prefix = "X") %>%
+      select(ID, X6:X9)
+
+    ptab_i <- left_join(ptab1_i, ptab2_i, by = "ID") %>%
+      select(ID, X1:X9) %>%
+      left_join(.vpop, by = "ID")
+    
+  evcef <- ev(ID = ptab_i$ID,
+              time = dose_times,
+              amt = 0,
+              cmt = 1,
+              rate = 0) %>%
+  as.data.frame() %>%
+  left_join(ptab_i, by = "ID") %>%
+  mutate(amt = .dawkacef*weight) %>%
+  mutate(rate = .dawkacef*weight) %>%
+  select(ID:evid, weight) %>%
+  mutate(WT = weight) %>%
+  as.ev()
+
+
+    evtaz <- ev(ID = ptab_i$ID,
+                time = dose_times,
+                amt = 0,
+                cmt = 3,
+                rate = 0) %>%
+  as.data.frame() %>%
+  left_join(ptab_i, by = "ID") %>%
+  mutate(amt = .dawkataz*weight) %>%
+  mutate(rate = .dawkataz*weight) %>%
+  select(ID:evid, weight) %>%
+  mutate(WT = weight) %>%
+  as.ev()
+  
+    dosing <- c(evcef, evtaz)
+
+    out_i <- modelbayesallo %>%
+      ev(dosing) %>%
+      mrgsim(idata = ptab_i, end = end_time, delta = dt) %>%
+      as_tibble() %>%
+      filter(time >= start_last_dose & time < end_time) %>%
+      left_join(ptab_i %>% select(ID, age_group, bmi_group), by = "ID") %>%
+      tidyr::expand_grid(MIC = exp(seq(log(2), log(256), length.out = 256))) %>%
+      group_by(MIC, ID, .data[[.group_var]]) %>%
+      summarise(TARGET1 = (length(which(0.8 * CEF * 1000 >= MIC)) * dt) >= 0.3 * .tau,
+                TARGET2 = (length(which(0.7 * TAZ * 1000 >= 1)) * dt) >= 0.2 * .tau,
+                .groups = "drop") %>%
+      group_by(MIC, .data[[.group_var]]) %>%
+      summarise(PTA = mean(as.numeric(TARGET1 & TARGET2)),
+                PTAC = mean(as.numeric(TARGET1)),
+                PTAT = mean(as.numeric(TARGET2)),
+                .groups = "drop") %>%
+      mutate(draw = i)
+
+    return(out_i)
+  }, .options = furrr_options(seed = TRUE)) %>% bind_rows()
+
+  pta_stats <- pta_results %>%
+    group_by(MIC, .data[[.group_var]]) %>%
+    summarise(my = median(PTA),
+              ly = quantile(PTA, 0.05),
+              hy = quantile(PTA, 0.95),
+              .groups = "drop")
+
+  plot <-  ggplot(pta_stats, aes(x = MIC, y = my, color = .data[[.group_var]],  fill = .data[[.group_var]])) +
+    geom_line(linewidth = 1, alpha = 0.7) +
+    geom_ribbon(aes(ymin = ly, ymax = hy), alpha = 0.15, color = NA) +
+    geom_hline(yintercept = 0.9, color = 'grey30', linetype = "dashed") +
+    labs(title = .title,
+         subtitle = .subtitle,
+         x = "MIC (mg/L)",
+         y = "PTA",
+        color = legend_title,
+        fill = legend_title)  +
+    theme_bw(base_size = 13)+
+    scale_x_continuous(transform = "log2",
+                    breaks = c(2, 4, 8, 16, 32, 64, 128, 256),
+                    labels = c("2", "4", "8", "16", "32", "64", "128", "256")) +
+    scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
+      scale_color_manual(values = cols) +
+      scale_fill_manual(values = cols) +
+    theme(legend.position = "bottom")
+
+  return(plot)
+
+}
+
+```
+
+```{r PTA bayes allo function2}
+
+plan(multisession, workers = 8)
+
+options(future.globals.maxSize = 2 * 1024^3) ## uruchom aby zwiększyć limit RAMu - trzymam kciuki, żeby nie spaliło komputera :)
+
+### WAŻNE! DAWKI TRZEBA PODAWAĆ W GRAMACH, ŻEBY ZGADZAŁY SIĘ JEDNOSTKI + pojedynczy wykres zajmuje bardzo dużo czasu (+/- 10minut)
+
+plot_pta_bayesallo2(.dawkacef = 0.02, .dawkataz = 0.01, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "bmi_group", .title = "PTA w zależności od grupy wagowej.\nDawka na kilogram masy ciała.", .subtitle = "Dawka 20/10 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo2(.dawkacef = 0.02, .dawkataz = 0.01, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nDawka na kilogram masy ciała.", .subtitle = "Dawka 20/10 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo2(.dawkacef = 0.03, .dawkataz = 0.015, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "bmi_group", .title = "PTA w zależności od grupy wagowej.\nDawka na kilogram masy ciała.", .subtitle = "Dawka 30/15 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo2(.dawkacef = 0.03, .dawkataz = 0.015, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nDawka na kilogram masy ciała.", .subtitle = "Dawka 30/15 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+```
+
+
+# PTA - BAYES z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.
+
+```{r PTA bayes allo3}
+
+plot_pta_bayesallo3 <- function(.dawkacef,
+                               .dawkataz,
+                               .vpop,
+                               .df_draws,
+                               .tau,
+                               .group_var = c("age_group", "bmi_group"),
+                               .ndraws = 100,
+                               .title = NULL,
+                                .subtitle = NULL){
+  .group_var <- match.arg(.group_var)
+  set.seed(123456)
+  sampled_draws <- sample(unique(.df_draws$.draw),
+                          size = min(.ndraws, length(unique(.df_draws$.draw))))
+
+  dose_times <- seq(0, by = .tau, length.out = 6)
+  end_time <- max(dose_times) + .tau
+  start_last_dose <- max(dose_times)
+  dt <- 0.1
+
+  if (.group_var == "age_group") {
+  cols <- c(
+    "2–7 lat" = "#1b9e77",
+    "7–12 lat" = "#d95f02",
+    "12–18 lat" = "#7570b3"
+  )
+}
+if (.group_var == "bmi_group") {
+  cols <- c(
+    "Niedowaga" = "#4daf4a",
+    "Waga w normie" = "#ff7f00",
+    "Nadwaga" = "#e41a1c"
+  )
+}
+  
+  legend_title <- if (.group_var == "age_group") "Grupa wiekowa" else "Grupa wagowa"
+  
+  
+  pta_results <- future_map(sampled_draws, function(i) {
+    ptab1_i <- .df_draws %>%
+      filter(.draw == i) %>%
+      tidybayes::spread_draws(thetaPredC[j, ID]) %>%
+      pivot_wider(names_from = j, values_from = thetaPredC, names_prefix = "X")
+
+    ptab2_i <- .df_draws %>%
+      filter(.draw == i) %>%
+      tidybayes::spread_draws(thetaPredT[j, ID]) %>%
+      mutate(j = j + 5) %>%
+      pivot_wider(names_from = j, values_from = thetaPredT, names_prefix = "X") %>%
+      select(ID, X6:X9)
+
+    ptab_i <- left_join(ptab1_i, ptab2_i, by = "ID") %>%
+      select(ID, X1:X9) %>%
+      left_join(.vpop, by = "ID")
+
+    evcef <- ev(ID = ptab_i$ID,
+                time = dose_times,
+                amt = 0,
+                cmt = 1,
+                rate = 0) %>%
+      as.data.frame() %>%
+      left_join(ptab_i %>% select(ID, weight), by = "ID") %>%
+      mutate(amt = .dawkacef*(weight/70)^0.75) %>% 
+      mutate(rate = .dawkacef*(weight/70)^0.75) %>% 
+      select(ID:evid, weight) %>%
+      mutate(WT = weight) %>%
+      as.ev()
+
+    evtaz <- ev(ID = ptab_i$ID,
+                time = dose_times,
+                amt = 0,
+                cmt = 3,
+                rate = 0) %>%
+      as.data.frame() %>%
+      left_join(ptab_i %>% select(ID, weight), by = "ID") %>%
+      mutate(amt = .dawkataz*(weight/70)^0.75) %>% 
+      mutate(rate = .dawkataz*(weight/70)^0.75) %>% 
+      select(ID:evid, weight) %>%
+      mutate(WT = weight) %>%
+      as.ev()
+
+    dosing <- c(evcef, evtaz)
+
+    out_i <- modelbayesallo %>%
+      ev(dosing) %>%
+      mrgsim(idata = ptab_i, end = end_time, delta = dt) %>%
+      as_tibble() %>%
+      filter(time >= start_last_dose & time < end_time) %>%
+      left_join(ptab_i %>% select(ID, age_group, bmi_group), by = "ID") %>%
+      tidyr::expand_grid(MIC = exp(seq(log(2), log(256), length.out = 256))) %>%
+      group_by(MIC, ID, .data[[.group_var]]) %>%
+      summarise(TARGET1 = (length(which(0.8 * CEF * 1000 >= MIC)) * dt) >= 0.3 * .tau,
+                TARGET2 = (length(which(0.7 * TAZ * 1000 >= 1)) * dt) >= 0.2 * .tau,
+                .groups = "drop") %>%
+      group_by(MIC, .data[[.group_var]]) %>%
+      summarise(PTA = mean(as.numeric(TARGET1 & TARGET2)),
+                PTAC = mean(as.numeric(TARGET1)),
+                PTAT = mean(as.numeric(TARGET2)),
+                .groups = "drop") %>%
+      mutate(draw = i)
+
+    return(out_i)
+  }, .options = furrr_options(seed = TRUE)) %>% bind_rows()
+
+  pta_stats <- pta_results %>%
+    group_by(MIC, .data[[.group_var]]) %>%
+    summarise(my = median(PTA),
+              ly = quantile(PTA, 0.05),
+              hy = quantile(PTA, 0.95),
+              .groups = "drop")
+
+  plot <-  ggplot(pta_stats, aes(x = MIC, y = my, color = .data[[.group_var]],  fill = .data[[.group_var]])) +
+    geom_line(linewidth = 1, alpha = 0.7) +
+    geom_ribbon(aes(ymin = ly, ymax = hy), alpha = 0.15, color = NA) +
+    geom_hline(yintercept = 0.9, color = 'grey30', linetype = "dashed") +
+    labs(title = .title,
+         subtitle = .subtitle,
+         x = "MIC (mg/L)",
+         y = "PTA",
+        color = legend_title,
+        fill = legend_title)  +
+    theme_bw(base_size = 13)+
+    scale_x_continuous(transform = "log2",
+                    breaks = c(2, 4, 8, 16, 32, 64, 128, 256),
+                    labels = c("2", "4", "8", "16", "32", "64", "128", "256")) +
+    scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
+      scale_color_manual(values = cols) +
+      scale_fill_manual(values = cols) +
+    theme(legend.position = "bottom")
+
+  return(plot)
+
+}
+
+```
+
+```{r PTA bayes allo function3}
+
+plan(multisession, workers = 8)
+
+options(future.globals.maxSize = 2 * 1024^3) ## uruchom aby zwiększyć limit RAMu - trzymam kciuki, żeby nie spaliło komputera :)
+
+### WAŻNE! DAWKI TRZEBA PODAWAĆ W GRAMACH, ŻEBY ZGADZAŁY SIĘ JEDNOSTKI + pojedynczy wykres zajmuje bardzo dużo czasu (+/- 10minut)
+
+plot_pta_bayesallo3(.dawkacef = 0.02*70, .dawkataz = 0.01*70, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "bmi_group", .title = "PTA w zależności od grupy wagowej.\nDawka skalowana allometrycznie.", .subtitle = "Dawka 20/10 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo3(.dawkacef = 0.02*70, .dawkataz = 0.01*70, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nDawka skalowana allometrycznie.", .subtitle = "Dawka 20/10 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo3(.dawkacef = 0.03*70, .dawkataz = 0.015*70, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "bmi_group", .title = "PTA w zależności od grupy wagowej.\nDawka skalowana allometrycznie.", .subtitle = "Dawka 30/15 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+
+plot_pta_bayesallo3(.dawkacef = 0.03*70, .dawkataz = 0.015*70, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nDawka skalowana allometrycznie.", .subtitle = "Dawka 30/15 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
+```
+
+
+
+# SessionInfo
+
+```{r SessionINfo}
+
+sessionInfo()
+
+```

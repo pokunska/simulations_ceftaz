@@ -1,0 +1,493 @@
+---
+title: "Ceftazolone Tazobactam EDA"
+author: "Marcel Szpott"
+format: 
+  html:
+    toc: true
+    code_fold: true
+execute:
+  warnings: false
+editor: visual
+---
+
+```{r renv, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+#renv::snapshot()
+renv::status()
+```
+
+```{r loadlibrary, message=F}
+
+#load library
+# repos <- c("https://metrumresearchgroup.github.io/r_validated", options()$repos)
+# install.packages("mrggsave", repos = unique(repos), type = "source", destdir = NULL)
+
+library(pracma)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(mrgsolve)
+library(naniar)
+library(knitr)
+library(data.table)
+library(tidyverse)
+library(glue)
+library(whisker)
+library(here)
+library(scales)
+library(pmplots)
+library(pmtables)
+library(nmrec)
+library(cmdstanr)
+library(gridExtra)
+library(magrittr)
+library(yaml)
+library(magick)
+library(arrow)
+library(yspec)
+library(haven)
+library(conflicted)
+library(kableExtra)
+library(skimr)
+library(mrggsave)
+library(GGally)
+library(ggpubr)
+library(pdftools)
+library(Hmisc)
+library(PKNCA)
+library(viridisLite)
+library(webshot2)
+#library(pdflatex)
+
+#conflict prefer
+conflict_prefer("filter", "dplyr")
+conflict_prefer("geomean", "PKNCA")
+conflict_prefer("sd", "stats")
+
+
+thisScript <- "exploratory_analysis.qmd"
+
+```
+
+## Settings
+
+```{r settings, message=FALSE, warning=FALSE}
+
+scriptDir <- here::here("scripts/Exploratory_Analysis")
+data_dir <- here::here("data/derived")
+model_dir <- here::here("model/nonmem/basic")
+figure_dir <- here::here("deliv/figures/EDA")
+table_dir <- here::here("deliv/tables/EDA")
+
+# helper functions
+source(here::here("scripts", "helpers","functions-table.R"))
+
+# table summary 
+sigfun = function(.x){sig(.x,digits=3)}
+
+```
+
+```{r csv_data, include = FALSE}
+xdata <- read_csv(file.path(data_dir, "RawData.csv"), na = c(".", " ", "-999"), guess_max = Inf) %>% 
+   mutate(CLCR = round(ifelse(SEX == 2,
+                              ((140 - AGE) * BW) / (72 * CRE) * 0.85,  # F
+                              ((140 - AGE) * BW) / (72 * CRE)),        # M
+                              2))
+head(xdata)
+```
+
+```{r stezenie_waga}
+podanie <- xdata %>% 
+  filter(EVID == 0)
+
+ggplot(podanie, aes(BW, DV))+
+  geom_point()+
+  geom_smooth()
+```
+
+# Stężenia dla pacjenta ID = 1
+
+```{r stezenie_w_czasie_ID1}
+pacjent1 <- xdata %>% 
+  filter(ID == 1)
+
+pacjent1_dawka <- pacjent1 %>% 
+  filter(EVID ==1)  
+
+pacjent1_conc <- pacjent1 %>% 
+  filter(EVID == 0) 
+
+pacjent1_conc$DRUG <- factor(pacjent1_conc$CMT, 
+                            levels = c(1,3), 
+                            labels = c("CEFT", "TAZ"))
+
+ggplot(pacjent1_conc, aes(TIME, DV, color = DRUG))+
+  geom_point()+
+  geom_line()+
+  theme_pubclean()
+```
+
+# Spaghetti plot stężeń w populacji
+
+```{r}
+spaghetti <- xdata %>%
+  filter(EVID == 0) %>%
+  mutate(Lek = factor(CMT, levels = c(1, 3), labels = c("CEFTOLOZAN", "TAZOBAKTAM")))
+
+ggplot(spaghetti, aes(x = TIME, y = DV, group = ID, color = Lek))+
+  geom_line()+
+  geom_point()+
+  facet_wrap(~ Lek, )+
+  scale_color_manual(values = c("CEFTOLOZAN" = "#A81E07", "TAZOBAKTAM" = "#0735A8"))+
+  scale_x_continuous(breaks = seq(0, 24, by = 4))+
+  labs(
+    title = "Profile stężenie-czas", 
+    x = "Czas [h]", 
+    y = "Stężenie [ug/mL]", 
+    )+
+  theme_bw()+
+  theme(legend.position = "none")
+```
+
+```{r}
+spaghetti <- xdata %>%
+  filter(EVID == 0) %>%
+  mutate(Lek = factor(CMT, levels = c(1, 3), labels = c("CEFTOLOZAN", "TAZOBAKTAM")))
+
+ggplot(spaghetti, aes(x = TIME, y = DV, group = interaction(ID, Lek), color = Lek))+
+  geom_line()+
+  geom_point()+
+  scale_color_manual(values = c("CEFTOLOZAN" = "#A81E07", "TAZOBAKTAM" = "#0735A8"))+
+  scale_x_continuous(breaks = seq(0, 24, by = 4))+
+  labs(
+    title = "Profile stężenie-czas", 
+    x = "Czas [h]", 
+    y = "Stężenie [ug/mL]", 
+    )+
+  theme_bw()
+```
+
+# Profile stężeń w populacji
+
+```{r profile}
+
+wykres <- xdata %>% 
+  filter(EVID == 0) %>% 
+  mutate(drug = as.factor(CMT))
+
+levels(wykres$drug) <- c("CEFT", "TAZ")
+
+ggplot(wykres, aes(TIME, DV, color = drug))+
+  geom_point()+
+  geom_line()+
+  facet_wrap(~ID)
+#wypróbować różne nrow ncol i skale x y
+```
+
+# Średnie stężenie od masy ciała
+
+```{r, message=FALSE, warning=FALSE}
+stez <- xdata %>% 
+  filter(EVID == 0) %>%
+  group_by(ID, CMT) %>% 
+  summarise(mean_DV = mean(DV), BW = dplyr::first(BW)) %>% 
+  mutate(Lek = factor(CMT, levels = c(1, 3), labels = c("CEFT", "TAZ")))
+
+ggplot(stez, aes(BW, mean_DV, color = Lek))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  labs(
+    title = "Średnie stężenie od masy ciała",
+    caption = "Metoda liniowa dla geom_smooth",
+    x = "Średnie stężenie [ug/mL]",
+    y = "Masa ciała [kg]"
+  )+
+  scale_colour_manual(values = c("CEFT" = "#A81E07", "TAZ" = "#0735A8"))+
+  theme(legend.position = "bottom")
+  
+```
+
+# Stężenie od obecności terapii wspomagających
+
+```{r, message=FALSE, warning=FALSE}
+terapie <- xdata %>% 
+  filter(EVID == 0) %>% 
+  mutate(
+    x_CRRT = ifelse(CRRT == 1, "Z CRRT", "BEZ CRRT"),
+    x_ECMO = ifelse(ECMO == 1, "Z ECMO", "BEZ ECMO"),
+    Lek = factor(CMT, levels = c(1, 3), labels = c("CEFT", "TAZ"))
+  )
+
+ggplot(terapie, aes(TIME, DV, color = Lek))+
+  geom_line(aes(group = interaction(ID, Lek)))+
+  geom_point()+
+  facet_wrap(~x_CRRT)+
+  theme_bw()+
+  labs(
+    x = "Czas [h]",
+    y = "Stężenie [ug/mL]"
+  )+
+  scale_colour_manual(values = c("CEFT" = "#A81E07", "TAZ" = "#0735A8"))+
+  theme(legend.position = "bottom")
+
+ggplot(terapie, aes(TIME, DV, color = x_CRRT))+
+  geom_line(aes(group = ID))+
+  geom_point()+
+  facet_wrap(~Lek)+
+  theme_bw()
+
+ggplot(terapie, aes(TIME, DV, color = Lek))+
+  geom_line(aes(group = interaction(ID, Lek)))+
+  geom_point()+
+  facet_wrap(~x_ECMO)+
+  theme_bw()+
+  labs(
+    x = "Czas [h]",
+    y = "Stężenie [ug/mL]"
+  )+
+  scale_colour_manual(values = c("CEFT" = "#A81E07", "TAZ" = "#0735A8"))+
+  theme(legend.position = "bottom")
+
+ggplot(terapie, aes(TIME, DV, color = x_ECMO))+
+  geom_line(aes(group = ID))+
+  geom_point()+
+  facet_wrap(~Lek)+
+  theme_bw()
+
+```
+
+# Tabele
+
+### Kowarianty ciągłe i zmienne w populacji
+
+```{r}
+tabela1 <- xdata %>% 
+  distinct(ID, .keep_all = TRUE) %>% 
+  replace_with_na(replace = list(PCT = -999)) %>% 
+  mutate(
+    SEX = ifelse(SEX == 1, "Mężczyzna", "Kobieta"),
+    ECMO = ifelse(ECMO == 1, "Tak", "Nie"),
+    CRRT = ifelse(CRRT == 1, "Tak", "Nie")
+  ) %>% 
+  select(
+    ID, SEX, BW, AGE, HEIGHT, SOFA, ECMO, CRRT, PCT, ELWI, CI, CRE, ALB, PROTEIN
+  ) %>% 
+  rename("Waga [kg]" = BW, "Płeć" = SEX, "Wiek [lat]" = AGE, "Wzrost [cm]" = HEIGHT, "Wskaźnik sercowy [L/min/m2]" = CI, "Kreatynina [mg/dL]" = CRE, 
+         "Albumina [g/dL]" = ALB, "Białko całkowite [mg/ml]" = PROTEIN)
+
+tabela_kable <- tabela1 %>% 
+  kable(
+    format = "html",
+    caption = "<span style='font-size: 22px; font-weight: bold; color: #000000;'>Kowarianty zmienne i ciągłe w populacji.</span>",
+    align = "c",
+  ) %>% 
+  kable_styling(position = "center", 
+                bootstrap_options = "striped") %>% 
+  column_spec(1, bold = TRUE, border_right = TRUE) %>% 
+  footnote(general = "PCT = Prokalcytonina [ng/ml]; 
+    ECMO = Pozaustrojowe natlenianie krwi;
+    CRRT = Ciągła terapia nerkozastępcza;
+    ELWI = Wskaźnik pozanaczyniowej wody wewnątrzpłucnej",
+    general_title = "Legenda")
+
+tabela_kable
+```
+
+### Kowarianty ciągłe - statystyka
+
+```{r, message=FALSE, warning=FALSE}
+
+tabela2 <- xdata %>%
+  distinct(ID, .keep_all = TRUE) %>% 
+  replace_with_na(replace = list(PCT = -999)) %>%
+  select(HEIGHT, BW, AGE, SOFA, PCT, ELWI, CI, CRE, ALB, PROTEIN) %>%
+  rename("Waga [kg]" = BW, "Prokalcytonina [ng/ml]" = PCT, "Wskaźnik pozanaczyniowej wody wewnątrzpłucnej" = ELWI, "Wiek [lat]" = AGE, "Wzrost [cm]" = HEIGHT, "Wskaźnik sercowy [L/min/m2]" = CI, "Kreatynina [mg/dL]" = CRE, "Albumina [g/dL]" = ALB, "Białko całkowite [mg/ml]" = PROTEIN) %>% 
+  
+  pivot_longer(cols = everything(), names_to = "Zmienna", values_to = "Wartość") %>%
+  mutate(Zmienna = factor(Zmienna, levels = unique(Zmienna))) %>%
+  group_by(Zmienna) %>% 
+  summarise(
+    `N (ilość)` = sum(!is.na(Wartość)),
+    `Średnia` = round(mean(Wartość, na.rm = TRUE), 2),
+    `Mediana` = round(median(Wartość, na.rm = TRUE), 2),
+    `Min` = round(min(Wartość, na.rm = TRUE), 2),
+    `Max` = round(max(Wartość, na.rm = TRUE), 2),
+    `Odch. stand. (SD)` = round(sd(Wartość, na.rm = TRUE), 2)
+  )
+
+tabela2 %>%
+  kable(
+    format = "html", 
+    caption = "<span style='font-size: 20px; font-weight: bold; color: #000000;'>Statystyki opisowe zmiennych ciągłych</span>",
+    align = c("l", rep("c", 6))) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"), 
+    full_width = FALSE, 
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#428EDB") %>%
+  column_spec(1, bold = TRUE, border_right = TRUE)
+```
+
+### Kowarianty kategoryczne
+
+```{r, message=FALSE, warning=FALSE}
+
+# tabela3 <- xdata %>%
+#   filter(EVID == 1) %>%
+#   distinct(ID, .keep_all = TRUE) %>%
+#   mutate(
+#     SEX = ifelse(SEX == 1, "Mężczyzna", "Kobieta"),
+#     ECMO = ifelse(ECMO == 1, "Tak", "Nie"),
+#     CRRT = ifelse(CRRT == 1, "Tak", "Nie")
+#   )
+# 
+# cat_tab <- pt_cat_long(tabela3, cols = c("SEX", "ECMO", "CRRT")) %>%
+#   st_new() %>% 
+#   st_files(r = NULL) %>% 
+#   stable() 
+# 
+#   st_as_image(cat_tab)
+
+```
+
+# Kowarianty ciągłe wg zastosowania ECMO
+
+```{r, message=FALSE, warning=FALSE}
+ciag_ecmo <- xdata %>%
+  filter(EVID == 1) %>%
+  distinct(ID, .keep_all = TRUE) %>%
+  mutate(ECMO = factor(ECMO, levels = c(0, 1), labels = c("Bez ECMO", "ECMO")))
+
+cont_vars <- c("AGE", "BW", "SOFA", "PCT", "ELWI", "CI", "CRE", "ALB", "PROTEIN")
+
+ciag_ECMO <- ciag_ecmo %>%
+  select(ID, ECMO, all_of(cont_vars)) %>%
+  pivot_longer(cols = all_of(cont_vars),
+               names_to = "Zmienna",
+               values_to = "Wartość") %>%
+  mutate(Zmienna = factor(Zmienna, levels = cont_vars))
+
+units_labels <- c(
+  AGE = "AGE [lata]",
+  BW  = "BW [kg]",
+  SOFA  = "SOFA",
+  PCT = "PCT [ng/mL]",
+  ELWI = "ELWI",
+  CI  = "CI [L/min/m²]",
+  CRE = "CRE [mg/dL]",
+  ALB = "ALB [g/dL]",
+  PROTEIN = "PROTEIN [mg/dL]"
+)
+
+ciag_ECMO <- ciag_ECMO %>%
+  mutate(Zmienna_label = factor(units_labels[Zmienna], levels = units_labels))
+
+plot_ecmo <- ggplot(ciag_ECMO, aes(ECMO, Wartość)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, width = 0.5) +
+  facet_wrap(~ Zmienna_label, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Kowarianty ciągłe wg zastosowania \n pozausrojowego natleniania krwi",
+    y = "Wartość",
+    x = NULL
+  ) +
+  theme_bw(base_size = 14)+
+  theme(legend.position = "none")
+
+print(plot_ecmo)
+```
+
+# Kowarianty ciągłe wg zastosowania CRRT
+
+```{r, message=FALSE, warning=FALSE}
+ciag_crrt <- xdata %>%
+  filter(EVID == 1) %>%
+  distinct(ID, .keep_all = TRUE) %>%
+  mutate(CRRT = factor(CRRT, levels = c(0, 1), labels = c("Bez CRRT", "CRRT")))
+
+cont_vars <- c("AGE", "BW", "SOFA", "PCT", "ELWI", "CI", "CRE", "ALB", "PROTEIN")
+
+ciag_CRRT <- ciag_crrt %>%
+  select(ID, CRRT, all_of(cont_vars)) %>%
+  pivot_longer(cols = all_of(cont_vars),
+               names_to = "Zmienna",
+               values_to = "Wartość") %>%
+  mutate(Zmienna = factor(Zmienna, levels = cont_vars))
+
+units_labels <- c(
+  AGE = "AGE [lata]",
+  BW  = "BW [kg]",
+  SOFA  = "SOFA",
+  PCT = "PCT [ng/mL]",
+  ELWI = "ELWI",
+  CI  = "CI [L/min/m²]",
+  CRE = "CRE [mg/dL]",
+  ALB = "ALB [g/dL]",
+  PROTEIN = "PROTEIN [mg/dL]"
+)
+
+ciag_CRRT <- ciag_CRRT %>%
+  mutate(Zmienna_label = factor(units_labels[Zmienna], levels = units_labels))
+
+plot_crrt <- ggplot(ciag_CRRT, aes(CRRT, Wartość)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, width = 0.5) +
+  facet_wrap(~ Zmienna_label, scales = "free_y", ncol = 3) +
+  labs(
+    title = str_wrap("Kowarianty ciągłe wg zastosowania ciągłej terapii nerkozastępczej"),
+    y = "Wartość",
+    x = NULL
+  ) +
+  theme_bw(base_size = 14)+
+  theme(legend.position = "none")
+
+print(plot_crrt)
+
+```
+
+# Kowarianty ciągłe wg płci
+
+```{r}
+ciag_sex <- xdata %>%
+  filter(EVID == 1) %>%
+  distinct(ID, .keep_all = TRUE) %>%
+  mutate(SEX = factor(SEX, levels = c(2, 1), labels = c("Kobiety", "Mężczyźni")))
+
+cont_vars <- c("AGE", "BW", "SOFA", "PCT", "ELWI", "CI", "CRE", "ALB", "PROTEIN")
+
+ciag_SEX <- ciag_sex %>%
+  select(ID, SEX, all_of(cont_vars)) %>%
+  pivot_longer(cols = all_of(cont_vars),
+               names_to = "Zmienna",
+               values_to = "Wartość") %>%
+  mutate(Zmienna = factor(Zmienna, levels = cont_vars))
+
+units_labels <- c(
+  AGE = "AGE [lata]",
+  BW  = "BW [kg]",
+  SOFA  = "SOFA",
+  PCT = "PCT [ng/mL]",
+  ELWI = "ELWI",
+  CI  = "CI [L/min/m²]",
+  CRE = "CRE [mg/dL]",
+  ALB = "ALB [g/dL]",
+  PROTEIN = "PROTEIN [mg/dL]"
+)
+
+ciag_SEX <- ciag_SEX %>%
+  mutate(Zmienna_label = factor(units_labels[Zmienna], levels = units_labels))
+
+plot_sex <- ggplot(ciag_SEX, aes(SEX, Wartość)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, width = 0.5) +
+  facet_wrap(~ Zmienna_label, scales = "free_y", ncol = 3) +
+  labs(
+    title = str_wrap("Kowarianty ciągłe wg płci"),
+    y = "Wartość",
+    x = NULL
+  ) +
+  theme_bw(base_size = 14)+
+  theme(legend.position = "none")
+
+print(plot_sex)
+```
+
+##PO: ctrl + alt + i -\> nowy chunk

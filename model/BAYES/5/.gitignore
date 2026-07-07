@@ -1,0 +1,4 @@
+# ignore model binary
+5
+5-output/
+*.exe
