@@ -1,0 +1,118 @@
+SETUP__:
+  description: Ceftolozane-tazobactam lookfile
+  use_internal_db: true
+  
+ID:
+  short: ID number
+  type: numeric
+  
+NUM:
+  short: Line number
+  type: numeric
+  
+TIME:
+  short: Time After First Dose
+  type: numeric
+  unit: hr
+  
+DV:
+  short: Dependent Variable
+  type: numeric
+  unit: ug/mL
+  
+AMT:
+  short: Dose Amount
+  type: numeric
+  unit: mg  
+  
+RATE:
+  short: Drug Input Information
+  type: numeric
+  
+ADDL:  
+  short: Additional Identical Doses Given
+  type: numeric
+  
+II: 
+  short: Interdose Interval
+  type: numeric
+  unit: hr
+
+CMT:
+  short: Nonmem Compartment
+  type: numeric
+  values: {Ceftolozane: 1, Ceftolozane Periph: 2, Tazobactam: 3, Tazobactam Periph: 4}  
+  
+MDV:
+  short: Missing Observation
+  type: numeric
+  values: {not missing: 0, missing: 1}  
+  
+EVID:
+  short: NONMEM Event ID
+  type: numeric
+  values: {observation: 0, dose: 1, other: 2}
+
+HEIGHT:
+  short: Height
+  type: numeric
+  unit: cm
+
+BW:
+  short: Weight
+  type: numeric
+  unit: kg
+
+SEX:
+  short: Sex
+  type: numeric
+  values: {Male: 1, Female: 2}
+  
+AGE:
+  short: Age
+  type: numeric
+  unit: years  
+  
+SOFA: 
+  short: Sequential Organ Failure Assessment
+  type: numeric
+  unit: points
+ 
+PCT:
+  short: Procalcitonin
+  type: numeric
+  unit: ng/mL
+ 
+ECMO:
+  short: ExtraCorporeal Membrane Oxygenation 
+  type: numeric
+  values: {not-used: 0, used: 1}  
+  
+CRRT:
+  short: Continuous Renal Replacement Therapy
+  type: numeric
+  values: {not-used: 0, used: 1}  
+ 
+ELWI:
+  short: Extravascular lung water index 
+  type: numeric
+  
+CI: 
+  short: Cardiac Index
+  type: numeric
+  unit: L/min/m2
+  
+CRE:  
+  short: Creatinine Concentration
+  type: numeric
+  unit: mg/dL
+  
+ALB: 
+  short: Albumin Concentration
+  type: numeric
+  unit: g/dL
+  
+PROTEIN: 
+  short: Protein Concentration 
+  type: numeric
+  unit: mg/mL
