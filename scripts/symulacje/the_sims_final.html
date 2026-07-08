@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Marcel Szpott">
+
+<title>Ceftazolone Tazobactam model sims</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="the_sims_final_files/libs/clipboard/clipboard.min.js"></script>
+<script src="the_sims_final_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="the_sims_final_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="the_sims_final_files/libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="the_sims_final_files/libs/quarto-html/popper.min.js"></script>
+<script src="the_sims_final_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="the_sims_final_files/libs/quarto-html/anchor.min.js"></script>
+<link href="the_sims_final_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="the_sims_final_files/libs/quarto-html/quarto-syntax-highlighting-7b89279ff1a6dce999919e0e67d4d9ec.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="the_sims_final_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="the_sims_final_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="the_sims_final_files/libs/bootstrap/bootstrap-9e3ffae467580fdb927a41352e75a2e0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="the_sims_final_files/libs/kePrint-0.0.1/kePrint.js"></script>
+
+<link href="the_sims_final_files/libs/lightable-0.0.1/lightable.css" rel="stylesheet">
+
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#populacja-pediatryczna" id="toc-populacja-pediatryczna" class="nav-link active" data-scroll-target="#populacja-pediatryczna">Populacja pediatryczna</a></li>
+  <li><a href="#model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" id="toc-model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" class="nav-link" data-scroll-target="#model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu">Model 1CMT z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu</a></li>
+  <li><a href="#model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c." id="toc-model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c." class="nav-link" data-scroll-target="#model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c.">Model 1CMT z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.</a></li>
+  <li><a href="#model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-ze-skalowaniem-allometrycznym-na-masę-ciała-w-dawkowaniu" id="toc-model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-ze-skalowaniem-allometrycznym-na-masę-ciała-w-dawkowaniu" class="nav-link" data-scroll-target="#model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-ze-skalowaniem-allometrycznym-na-masę-ciała-w-dawkowaniu">Model 1CMT z allometrycznym skalowaniem na parametry PK i ze skalowaniem allometrycznym na masę ciała w dawkowaniu</a></li>
+  <li><a href="#model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" id="toc-model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" class="nav-link" data-scroll-target="#model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu">Model bayesowski z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu</a></li>
+  <li><a href="#model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-liniowym-dawkowaniem-na-kg-m.c." id="toc-model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-liniowym-dawkowaniem-na-kg-m.c." class="nav-link" data-scroll-target="#model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-liniowym-dawkowaniem-na-kg-m.c.">Model bayesowski z allometrycznym skalowaniem na parametry PK i z liniowym dawkowaniem na kg m.c.</a></li>
+  <li><a href="#model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c." id="toc-model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c." class="nav-link" data-scroll-target="#model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c.">Model bayesowski z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.</a></li>
+  <li><a href="#pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" id="toc-pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" class="nav-link" data-scroll-target="#pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu">PTA - BAYES z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu</a></li>
+  <li><a href="#pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c." id="toc-pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c." class="nav-link" data-scroll-target="#pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c.">PTA - BAYES z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.</a></li>
+  <li><a href="#pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c." id="toc-pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c." class="nav-link" data-scroll-target="#pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c.">PTA - BAYES z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.</a></li>
+  <li><a href="#sessioninfo" id="toc-sessioninfo" class="nav-link" data-scroll-target="#sessioninfo">SessionInfo</a></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Ceftazolone Tazobactam model sims</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Marcel Szpott </p>
+          </div>
+  </div>
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>Opis skryptu: Symulacje podania ceftolozanu z tazobaktamem w populacji pediatrycznej przy użyciu modelu 1CMT bez wykorzystania allometrii oraz z wykorzystaniem allometrii. Grupy pediatyczne zostały utworzone z wykorzystaniem wieku oraz wagi w oparciu o publikację “Ceftolozane-Tazobactam Population Pharmacokinetics and Dose Selection for Further Clinical Evaluation in Pediatric Patients with Complicated Urinary Tract or Complicated Intra-abdominal Infections. Larson et al.(2019). Antimicrobial Agents and Chemotherapy, 63(6), e02578-18. https://doi.org/10.1128/AAC.02578-18”</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>No issues found -- the project is in a consistent state.</code></pre>
+</div>
+</div>
+<section id="populacja-pediatryczna" class="level1">
+<h1>Populacja pediatryczna</h1>
+<p>tworzymy populację dzieciaczków w wieku 2-18</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 9 × 3
+# Groups:   age_group, bmi_group [9]
+  age_group bmi_group         n
+  &lt;fct&gt;     &lt;fct&gt;         &lt;int&gt;
+1 2–7 lat   Niedowaga       100
+2 2–7 lat   Waga w normie  2389
+3 2–7 lat   Nadwaga         631
+4 7–12 lat  Niedowaga       107
+5 7–12 lat  Waga w normie  2367
+6 7–12 lat  Nadwaga         650
+7 12–18 lat Niedowaga       121
+8 12–18 lat Waga w normie  2862
+9 12–18 lat Nadwaga         773</code></pre>
+</div>
+</div>
+<p>Z każdej grupy losujemy po 100 osób:</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 9 × 3
+  age_group bmi_group         n
+  &lt;fct&gt;     &lt;fct&gt;         &lt;int&gt;
+1 2–7 lat   Niedowaga       100
+2 2–7 lat   Waga w normie   100
+3 2–7 lat   Nadwaga         100
+4 7–12 lat  Niedowaga       100
+5 7–12 lat  Waga w normie   100
+6 7–12 lat  Nadwaga         100
+7 12–18 lat Niedowaga       100
+8 12–18 lat Waga w normie   100
+9 12–18 lat Nadwaga         100</code></pre>
+</div>
+</div>
+<p>Dzieci należące do populacji charakteryzowane są przez parametry:</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 6 × 10
+     ID   age sex   age_group height weight   bmi bmisds bmi_group ID_old
+  &lt;int&gt; &lt;dbl&gt; &lt;chr&gt; &lt;fct&gt;      &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;fct&gt;      &lt;int&gt;
+1     1  4.18 f     2–7 lat    0.949  12.6   14.0  -1.71 Niedowaga   8171
+2     2  2.33 m     2–7 lat    0.859   9.37  12.7  -2.01 Niedowaga   5175
+3     3  5.35 f     2–7 lat    1.05   15.7   14.2  -1.85 Niedowaga   3816
+4     4  4.65 f     2–7 lat    1.03   14.4   13.6  -1.98 Niedowaga   6657
+5     5  3.32 m     2–7 lat    0.960  12.2   13.2  -1.95 Niedowaga   1123
+6     6  3.84 m     2–7 lat    1.08   15.0   12.8  -2.26 Niedowaga   5532</code></pre>
+</div>
+</div>
+<p>średnia masa ciała w populacji:</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 43.01019</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="cell-output-display">
+<table class="table table-striped table-hover table-condensed caption-top table-sm small">
+<caption><span style="font-size: 18px; font-weight: bold; color: #000000;">Rozkład liczbowy symulowanych pacjentów w grupach wiekowych i wagowych</span></caption>
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th" style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">Grupa BMI</th>
+<th data-quarto-table-cell-role="th" style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">2–7 lat</th>
+<th data-quarto-table-cell-role="th" style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">7–12 lat</th>
+<th data-quarto-table-cell-role="th" style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">12–18 lat</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Niedowaga</td>
+<td style="text-align: center;">100</td>
+<td style="text-align: center;">100</td>
+<td style="text-align: center;">100</td>
+</tr>
+<tr class="even">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Waga w normie</td>
+<td style="text-align: center;">100</td>
+<td style="text-align: center;">100</td>
+<td style="text-align: center;">100</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Nadwaga</td>
+<td style="text-align: center;">100</td>
+<td style="text-align: center;">100</td>
+<td style="text-align: center;">100</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="cell">
+<div class="cell-output-display">
+<table class="table table-striped table-hover table-condensed caption-top table-sm small">
+<caption><span style="font-size: 18px; font-weight: bold; color: #000000;">Charakterystyka demograficzna symulowanej populacji pediatrycznej</span></caption>
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th" style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">Grupa wiekowa</th>
+<th data-quarto-table-cell-role="th" style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">Grupa BMI</th>
+<th data-quarto-table-cell-role="th" style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">Płeć (K/M)</th>
+<th data-quarto-table-cell-role="th" style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">Wiek [lata]</th>
+<th data-quarto-table-cell-role="th" style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(66, 142, 219, 255) !important;">Waga [kg]</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td rowspan="3" style="text-align: left; font-weight: bold; border-right: 1px solid; vertical-align: middle !important;">2–7 lat</td>
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Niedowaga</td>
+<td style="text-align: center;">K: 41 / M: 59</td>
+<td style="text-align: center;">4.5 ± 1.4</td>
+<td style="text-align: center;">15.3 ± 3.5</td>
+</tr>
+<tr class="even">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Waga w normie</td>
+<td style="text-align: center;">K: 52 / M: 48</td>
+<td style="text-align: center;">4.4 ± 1.4</td>
+<td style="text-align: center;">19.8 ± 5.6</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Nadwaga</td>
+<td style="text-align: center;">K: 54 / M: 46</td>
+<td style="text-align: center;">4.4 ± 1.4</td>
+<td style="text-align: center;">26.1 ± 6.6</td>
+</tr>
+<tr class="even">
+<td rowspan="3" style="text-align: left; font-weight: bold; border-right: 1px solid; vertical-align: middle !important;">7–12 lat</td>
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Niedowaga</td>
+<td style="text-align: center;">K: 39 / M: 61</td>
+<td style="text-align: center;">9.4 ± 1.6</td>
+<td style="text-align: center;">29.0 ± 6.2</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Waga w normie</td>
+<td style="text-align: center;">K: 58 / M: 42</td>
+<td style="text-align: center;">9.6 ± 1.5</td>
+<td style="text-align: center;">39.6 ± 9.8</td>
+</tr>
+<tr class="even">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Nadwaga</td>
+<td style="text-align: center;">K: 49 / M: 51</td>
+<td style="text-align: center;">9.5 ± 1.5</td>
+<td style="text-align: center;">48.6 ± 10.7</td>
+</tr>
+<tr class="odd">
+<td rowspan="3" style="text-align: left; font-weight: bold; border-right: 1px solid; vertical-align: middle !important;">12–18 lat</td>
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Niedowaga</td>
+<td style="text-align: center;">K: 49 / M: 51</td>
+<td style="text-align: center;">14.9 ± 1.6</td>
+<td style="text-align: center;">50.3 ± 9.1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Waga w normie</td>
+<td style="text-align: center;">K: 51 / M: 49</td>
+<td style="text-align: center;">15.0 ± 1.7</td>
+<td style="text-align: center;">69.4 ± 14.1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left; font-weight: bold; border-right: 1px solid;">Nadwaga</td>
+<td style="text-align: center;">K: 51 / M: 49</td>
+<td style="text-align: center;">15.2 ± 1.7</td>
+<td style="text-align: center;">89.0 ± 16.0</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+<section id="model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" class="level1">
+<h1>Model 1CMT z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu</h1>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>
+
+-----------------  source: 100a.cpp  -----------------
+
+  project: D:/PROJECTS/simu...l/simod/basic
+  shared object: 100a-so-5c34fba3433 
+
+  time:          start: 0 end: 24 delta: 1
+                 add: &lt;none&gt;
+
+  compartments:  DEPOT1 PER1 DEPOT2 [3]
+  parameters:    TVCLC TVVCC TVCLT TVVCT TVSD WT WTCLC
+                 WTVCC WTCLT WTVCT [10]
+  captures:      CEF TAZ ETA1 ETA2 ETA3 [5]
+  omega:         3x3 
+  sigma:         0x0 
+
+  solver:        atol: 1e-08 rtol: 1e-08 maxsteps: 20k
+------------------------------------------------------</code></pre>
+</div>
+</div>
+<p>Sprawdź model, parametry, warunki początkowe modelu jednokompartmentowego</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Model file:  100a.cpp 
+
+
+$PROB  
+# Model jednokompartmentowy, 
+# Podanie dożylne CEFT i TAZ, 
+# Populacja pediatryczna ze skalowaniem allometrycznym
+# WT na CL i V dla ceftolozanu i tazobaktamu
+
+$CMT DEPOT1 PER1 DEPOT2
+
+$PARAM @annotated
+TVCLC   : 6.37    : Typical clearence of cef for 70 kg subjects (L/h)  
+TVVCC   : 30.2    : Typical central volume of cef for 70 kg subjects (L) 
+TVCLT   : 15.5    : Typical clearence of taz for 70 kg subjects (L/h) 
+TVVCT   : 55.4    : Typical central volume of taz for 70 kg subjects (L)
+TVSD    : 0.812   : SDCLT:SDv1T
+WT      : 70      : Body mass of a typical subject, kg #znajdź równanie w Covariate analysis w pracy z której korzystasz i zobacz na jaką masę ciała jest ustawione to równanie
+WTCLC    : 0.79    : Allometric exponent for CL cef
+WTVCC    : 0.87    : Allometric exponent for VC cef
+WTCLT    : 0.65    : Allometric exponent for CL taz
+WTVCT    : 0.74    : Allometric exponent for VC taz
+
+
+
+$MAIN
+double V1C=TVVCC*pow(WT/70,WTVCC)*exp(EV1C) ;      
+double CLC=TVCLC*pow(WT/70,WTCLC)*exp(ECL1C) ;
+double V1T=TVVCT*pow(WT/70,WTVCT)*exp(EV1T)     ;  
+double CLT=TVCLT*pow(WT/70,WTCLT)*exp(TVSD*EV1T) ;
+
+
+$DES
+
+double AC1=DEPOT1/V1C;
+double AT1=DEPOT2/V1T;
+
+dxdt_DEPOT1=  - CLC * AC1;
+dxdt_PER1=  0 ;
+dxdt_DEPOT2=  - CLT * AT1;
+
+$OMEGA @annotated @block @correlation
+EV1C: 0.5       : ETA on V1C
+ECL1C: 0.1  0.257        : ETA on CLC
+EV1T: 0.1  0.1  0.507   : ETA on V1T
+
+$TABLE
+
+double  CEF=DEPOT1/V1C;
+double TAZ=DEPOT2/V1T;
+
+$CAPTURE @etas 1:LAST
+CEF TAZ
+ </code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+ Model parameters (N=10):
+ name  value . name  value
+ TVCLC 6.37  | WT    70   
+ TVCLT 15.5  | WTCLC 0.79 
+ TVSD  0.812 | WTCLT 0.65 
+ TVVCC 30.2  | WTVCC 0.87 
+ TVVCT 55.4  | WTVCT 0.74 </code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+ Model initial conditions (N=3):
+ name         value . name       value
+ DEPOT1 (1)   0     | PER1 (2)   0    
+ DEPOT2 (3)   0     | . ...      .    </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-8.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-9.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-10.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-11.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-12.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-13.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo1-14.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c." class="level1">
+<h1>Model 1CMT z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-8.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-9.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-10.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-11.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-12.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-13.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-14.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo2-15.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="model-1cmt-z-allometrycznym-skalowaniem-na-parametry-pk-i-ze-skalowaniem-allometrycznym-na-masę-ciała-w-dawkowaniu" class="level1">
+<h1>Model 1CMT z allometrycznym skalowaniem na parametry PK i ze skalowaniem allometrycznym na masę ciała w dawkowaniu</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-8.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-9.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-10.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-11.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-12.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-13.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-14.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20z%20allo3-15.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" class="level1">
+<h1>Model bayesowski z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu</h1>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>
+
+------------------  source: 5b.cpp  ------------------
+
+  project: D:/PROJECTS/simu...l/simod/basic
+  shared object: 5b-so-5c34268827f 
+
+  time:          start: 0 end: 24 delta: 1
+                 add: &lt;none&gt;
+
+  compartments:  DEP1 PER1 DEP2 PER2 [4]
+  parameters:    X1 X2 X3 X4 X6 X7 X8 X9 WT WTCLC WTQC
+                 WTV1C WTV2C WTCLT WTQT WTV1T WTV2T [17]
+  captures:      CEF TAZ [2]
+  omega:         0x0 
+  sigma:         0x0 
+
+  solver:        atol: 1e-08 rtol: 1e-08 maxsteps: 20k
+------------------------------------------------------</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-8.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-9.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-10.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-11.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-12.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-13.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo1-14.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-liniowym-dawkowaniem-na-kg-m.c." class="level1">
+<h1>Model bayesowski z allometrycznym skalowaniem na parametry PK i z liniowym dawkowaniem na kg m.c.</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-8.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-9.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-10.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-11.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-12.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-13.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo2-14.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="model-bayesowski-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c." class="level1">
+<h1>Model bayesowski z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-5.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-6.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-7.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-8.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-9.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-10.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-11.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-12.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-13.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/reżimy%20bayes%20z%20allo3-14.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-bez-liniowego-skalowania-na-masę-ciała-w-dawkowaniu" class="level1">
+<h1>PTA - BAYES z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function1-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function1-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function1-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-liniowym-dawkowaniem-na-kg-m.c." class="level1">
+<h1>PTA - BAYES z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function2-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function2-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function2-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function2-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="pta---bayes-z-allometrycznym-skalowaniem-na-parametry-pk-i-z-allometrycznym-dawkowaniem-na-kg-m.c." class="level1">
+<h1>PTA - BAYES z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.</h1>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function3-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function3-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function3-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="the_sims_final_files/figure-html/PTA%20bayes%20allo%20function3-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="sessioninfo" class="level1">
+<h1>SessionInfo</h1>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>R version 4.3.2 (2023-10-31 ucrt)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 11 x64 (build 26200)
+
+Matrix products: default
+
+
+locale:
+[1] LC_COLLATE=Polish_Poland.utf8  LC_CTYPE=Polish_Poland.utf8   
+[3] LC_MONETARY=Polish_Poland.utf8 LC_NUMERIC=C                  
+[5] LC_TIME=Polish_Poland.utf8    
+
+time zone: Europe/Warsaw
+tzcode source: internal
+
+attached base packages:
+[1] stats     graphics  grDevices datasets  utils     methods   base     
+
+other attached packages:
+ [1] childsds_0.9.11     here_1.0.1          furrr_0.3.1        
+ [4] future_1.68.0       bbr.bayes_0.2.0     bbr_1.10.0         
+ [7] kableExtra_1.4.0    lubridate_1.9.3     forcats_1.0.0      
+[10] stringr_1.6.0       purrr_1.0.2         readr_2.1.5        
+[13] tidyr_1.3.1         tibble_3.2.1        tidyverse_2.0.0    
+[16] gridExtra_2.3       ggplot2_4.0.3       dplyr_1.1.4        
+[19] mrgsolve_1.5.2.9000
+
+loaded via a namespace (and not attached):
+ [1] gtable_0.3.6         tensorA_0.36.2.1     xfun_0.49           
+ [4] htmlwidgets_1.6.4    processx_3.8.4       tzdb_0.4.0          
+ [7] vctrs_0.6.5          tools_4.3.2          ps_1.7.6            
+[10] generics_0.1.4       parallel_4.3.2       pkgconfig_2.0.3     
+[13] data.table_1.16.2    checkmate_2.3.1      RColorBrewer_1.1-3  
+[16] S7_0.2.2             distributional_0.5.0 lifecycle_1.0.5     
+[19] deldir_2.0-4         compiler_4.3.2       farver_2.1.2        
+[22] codetools_0.2-20     htmltools_0.5.8.1    yaml_2.3.8          
+[25] pillar_1.11.1        crayon_1.5.3         abind_1.4-8         
+[28] parallelly_1.45.1    posterior_1.6.1      tidyselect_1.2.1    
+[31] digest_0.6.37        stringi_1.8.4        listenv_0.9.1       
+[34] diffobj_0.3.5        rprojroot_2.0.4      fastmap_1.2.0       
+[37] grid_4.3.2           cli_3.6.3            magrittr_2.0.3      
+[40] withr_3.0.2          scales_1.4.0         backports_1.4.1     
+[43] timechange_0.3.0     rmarkdown_2.29       globals_0.18.0      
+[46] interp_1.1-6         hms_1.1.3            evaluate_1.0.1      
+[49] knitr_1.49           viridisLite_0.4.3    rlang_1.1.4         
+[52] Rcpp_1.0.12          glue_1.7.0           xml2_1.3.6          
+[55] renv_1.0.7           svglite_2.1.3        rstudioapi_0.17.1   
+[58] jsonlite_1.8.8       R6_2.6.1             systemfonts_1.1.0   
+[61] fs_1.6.4            </code></pre>
+</div>
+</div>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

@@ -206,7 +206,6 @@ tabela_demograficzna %>%
   
 ```
 
-
 # Model 1CMT z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu
 
 ```{r model 1cmt z allo, echo=FALSE}
@@ -393,7 +392,6 @@ rm(plotstats)
 rm(simdata)
 ```
 
-
 # Model 1CMT z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.
 
 ```{r funkcja z allo2, echo=FALSE}
@@ -525,7 +523,6 @@ rm(out1)
 rm(plotstats)
 rm(simdata)
 ```
-
 
 # Model 1CMT z allometrycznym skalowaniem na parametry PK i ze skalowaniem allometrycznym na masę ciała w dawkowaniu
 
@@ -659,7 +656,6 @@ rm(plotstats)
 rm(simdata)
 ```
 
-
 # Model bayesowski z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu
 
 ```{r model bayes z allo1, echo=FALSE}
@@ -788,7 +784,6 @@ ptab_many <- ptab1 %>%
 
 ```
 
-
 ```{r funkcja modelu bayes z allo1, echo=FALSE}
 plot_bayes_allo <- function(.dawkacef,
                       .dawkataz,
@@ -899,7 +894,6 @@ plot_bayes_allo(.dawkacef = 3000, .dawkataz = 1500, .patab=ptab_many, .tau = 8, 
 ```
 
 # Model bayesowski z allometrycznym skalowaniem na parametry PK i z liniowym dawkowaniem na kg m.c.
-
 
 ```{r funkcja modelu bayes z allo2, echo=FALSE}
 plot_bayes_allo2 <- function(.dawkacef,
@@ -1023,9 +1017,7 @@ plot_bayes_allo2(.dawkacef = 30, .dawkataz = 15, .patab=ptab_many, .tau = 8, .su
 
 ```
 
-
 # Model bayesowski z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.
-
 
 ```{r funkcja modelu bayes z allo3, echo=FALSE}
 plot_bayes_allo3 <- function(.dawkacef,
@@ -1150,7 +1142,6 @@ plot_bayes_allo3(.dawkacef = 30*70, .dawkataz = 15*70, .patab=ptab_many, .tau = 
 plot_bayes_allo3(.dawkacef = 30*70, .dawkataz = 15*70, .patab=ptab_many, .tau = 8, .subtitle = "Dawka = 30/15 mg/kg m.c. (CEF/TAZ) podanie co 8h", log = TRUE)
 
 ```
-
 
 # PTA - BAYES z allometrycznym skalowaniem na parametry PK i bez liniowego skalowania na masę ciała w dawkowaniu
 
@@ -1306,7 +1297,6 @@ plot_pta_bayesallo1(.dawkacef = 2.5, .dawkataz = 1.25, .vpop = final100, .df_dra
 plot_pta_bayesallo1(.dawkacef = 2.5, .dawkataz = 1.25, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nStała dawka.", .subtitle = "Dawka 2500/1250 mg (CEF/TAZ), podanie co 8h, infuzja 1h")
 
 ```
-
 
 # PTA - BAYES z allometrycznym skalowaniem na parametry PK i liniowym dawkowaniem na kg m.c.
 
@@ -1466,7 +1456,6 @@ plot_pta_bayesallo2(.dawkacef = 0.03, .dawkataz = 0.015, .vpop = final100, .df_d
 
 ```
 
-
 # PTA - BAYES z allometrycznym skalowaniem na parametry PK i z allometrycznym dawkowaniem na kg m.c.
 
 ```{r PTA bayes allo3}
@@ -1622,8 +1611,6 @@ plot_pta_bayesallo3(.dawkacef = 0.03*70, .dawkataz = 0.015*70, .vpop = final100,
 
 plot_pta_bayesallo3(.dawkacef = 0.03*70, .dawkataz = 0.015*70, .vpop = final100, .df_draws = draws_df, .tau = 8,  .group_var = "age_group", .title = "PTA w zależności od grupy wiekowej.\nDawka skalowana allometrycznie.", .subtitle = "Dawka 30/15 mg/kg mc.c (CEF/TAZ), podanie co 8h, infuzja 1h")
 ```
-
-
 
 # SessionInfo
 
