@@ -1,6 +1,9 @@
 ---
 title: "Ceftolozane Tazobactam model sims"
-author: "Marcel Szpott"
+author: 
+  - Marcel Szpott
+  - Paulina Okuńska (paulinaokunska@gumed.edu.pl)
+  - Paweł Wiczling
 format: 
   html:
     toc: true
